@@ -20,7 +20,11 @@ import type {
   SubscriptionItem,
   SubtitleLanguageFilter,
 } from '@shared/types';
-import { SUBTITLE_LANGUAGE_OPTIONS } from '@shared/subtitleLanguage';
+import {
+  countSubtitleLanguages,
+  getSubtitleLanguageLabel,
+  SUBTITLE_LANGUAGE_OPTIONS,
+} from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { joinSavePath } from '@/lib/format';
 import { PosterImage } from './PosterImage';
@@ -195,6 +199,19 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
       detail.subgroups[0]
     );
   }, [detail, selectedSubgroupId, target?.subgroup]);
+
+  const subgroupDetectedLanguages = useMemo(() => {
+    if (!activeSubgroup?.episodes?.length) return [];
+    return countSubtitleLanguages(activeSubgroup.episodes.map((ep) => ep.title));
+  }, [activeSubgroup]);
+
+  const subgroupLanguageCounts = useMemo(() => {
+    const map = new Map<SubtitleLanguageFilter, number>();
+    for (const item of subgroupDetectedLanguages) {
+      map.set(item.id, item.count);
+    }
+    return map;
+  }, [subgroupDetectedLanguages]);
 
   if (!target) return null;
 
@@ -485,23 +502,45 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
               <div className="flex flex-wrap gap-1.5">
                 {SUBTITLE_LANGUAGE_OPTIONS.map((opt) => {
                   const active = languageFilter === opt.id;
+                  const hasSubgroupStats = Boolean(activeSubgroup?.episodes?.length);
+                  const count =
+                    opt.id === 'all'
+                      ? activeSubgroup?.episodes?.length || 0
+                      : subgroupLanguageCounts.get(opt.id) || 0;
+                  const isZeroInSubgroup =
+                    opt.id !== 'all' &&
+                    hasSubgroupStats &&
+                    subgroupLanguageCounts.size > 0 &&
+                    count === 0;
                   return (
                     <button
                       key={opt.id}
                       type="button"
                       onClick={() => setLanguageFilter(opt.id)}
                       title={opt.description}
-                      className={`rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition ${
+                      className={`rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition tabular-nums ${
                         active
                           ? 'bg-sky-500 font-semibold text-[#0B0D11]'
-                          : 'border border-white/[0.08] bg-[#0B0D11]/70 text-slate-300 hover:text-white'
+                          : isZeroInSubgroup
+                            ? 'border border-white/[0.05] bg-[#0B0D11]/45 text-slate-500 hover:border-white/[0.12] hover:text-slate-300'
+                            : 'border border-white/[0.08] bg-[#0B0D11]/70 text-slate-300 hover:text-white'
                       }`}
                     >
                       {opt.shortLabel}
+                      {hasSubgroupStats && count > 0 ? ` (${count})` : ''}
                     </button>
                   );
                 })}
               </div>
+              {languageFilter !== 'all' &&
+                subgroupLanguageCounts.size > 0 &&
+                !subgroupLanguageCounts.has(languageFilter) && (
+                  <p className="text-[11px] text-amber-300/90">
+                    提示：该字幕组近期资源检测到的语言为{' '}
+                    {subgroupDetectedLanguages.map((item) => item.shortLabel).join(' / ')}
+                    ，当前所选「{getSubtitleLanguageLabel(languageFilter)}」暂未匹配
+                  </p>
+                )}
             </div>
 
             {/* Keyword Filters & Category */}

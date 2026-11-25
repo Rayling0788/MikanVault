@@ -14,6 +14,8 @@ import {
 } from '../../electron/services/subscriptionService';
 import type { MikanRelease } from '../../src/shared/types';
 import {
+  classifySubtitleLanguage,
+  countSubtitleLanguages,
   detectSubtitleLanguage,
   inferCommonSubtitleLanguage,
   matchesSubtitleLanguage,
@@ -232,34 +234,46 @@ describe('subscriptionService', () => {
     expect(listSubscriptions()[0].totalAutoDownloaded).toBe(1);
   });
 
-  it('detects subtitle languages accurately without false positives and infers common language', () => {
+  it('detects subtitle languages in strict mutually-exclusive buckets without false positives', () => {
     expect(detectSubtitleLanguage('[ANi] 胆大党 - 01 [1080P][Baha][WEB-DL][CHT].mp4')).toMatchObject({
+      category: 'cht',
       hasCht: true,
       hasChs: false,
       isBilingual: false,
     });
     expect(detectSubtitleLanguage('[LoliHouse] 葬送的芙莉莲 - 01 [WebRip 1080p][简繁内封].mkv')).toMatchObject({
+      category: 'bilingual',
       hasChs: true,
       hasCht: true,
       isBilingual: true,
     });
     expect(detectSubtitleLanguage('[Sakurato] Frieren - 05 [1080p][简日内嵌].mkv')).toMatchObject({
+      category: 'chs_jp',
       hasChs: true,
       hasCht: false,
       isChsJp: true,
     });
     expect(detectSubtitleLanguage('[Sub] Anime - 05 [1080p][繁日双语].mkv')).toMatchObject({
+      category: 'cht_jp',
       hasCht: true,
       hasChs: false,
       isChtJp: true,
     });
     expect(detectSubtitleLanguage('[Sub] Anime - 05 [1080p][RAW][JPN].mkv')).toMatchObject({
+      category: 'raw',
       isRawOrJpnOnly: true,
       hasChs: false,
       hasCht: false,
     });
     // Ensure "1.2 GB" and "Disc" do NOT false-match GB/SC
+    expect(detectSubtitleLanguage('[Sub] Episode 01 [1080p Disc 1.2 GB].mkv')).toMatchObject({
+      category: 'unknown',
+      hasChs: false,
+      hasCht: false,
+      isBilingual: false,
+    });
     expect(detectSubtitleLanguage('[Raw] Episode 01 [1080p Disc 1.2 GB].mkv')).toMatchObject({
+      category: 'raw',
       hasChs: false,
       hasCht: false,
       isBilingual: false,
@@ -267,8 +281,11 @@ describe('subscriptionService', () => {
 
     expect(matchesSubtitleLanguage('[Sub] Ep 01 [GB][1080p]', 'chs')).toBe(true);
     expect(matchesSubtitleLanguage('[Sub] Ep 01 [BIG5][1080p]', 'chs')).toBe(false);
-    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简日][1080p]', 'chs')).toBe(true);
+    // Strict mutually-exclusive matching: 简日 belongs ONLY to chs_jp, 简繁 belongs ONLY to bilingual
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简日][1080p]', 'chs_jp')).toBe(true);
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简日][1080p]', 'chs')).toBe(false);
     expect(matchesSubtitleLanguage('[Sub] Ep 01 [简繁][1080p]', 'bilingual')).toBe(true);
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简繁][1080p]', 'chs')).toBe(false);
 
     expect(
       inferCommonSubtitleLanguage([
@@ -284,6 +301,64 @@ describe('subscriptionService', () => {
     ).toBe('all');
   });
 
+  it('classifies real FX战士久留美 and seasonal Mikan releases cleanly without overlapping counts', () => {
+    // 悠哈璃羽字幕社 sample: CHS_JP, CHT_JP, and CHS_JP&CHT_JP[简繁日内封]
+    const youhaTitles = [
+      '【悠哈璃羽字幕社】[FX战士久留美 / FX Senshi Kurumi-chan][08][1080p HEVC][CHT_JP][繁日内嵌]',
+      '【悠哈璃羽字幕社】[FX战士久留美 / FX Senshi Kurumi-chan][08][1080p HEVC][CHS_JP][简日内嵌]',
+      '【悠哈璃羽字幕社】[FX战士久留美 / FX Senshi Kurumi-chan][04][1080p HEVC][CHS_JP&CHT_JP][简繁日内封]',
+    ];
+    expect(countSubtitleLanguages(youhaTitles).map((c) => [c.id, c.count])).toEqual([
+      ['chs_jp', 1],
+      ['cht_jp', 1],
+      ['bilingual', 1],
+    ]);
+
+    // 北宇治字幕组 / 绿茶字幕组: [简繁日内封] MUST classify as bilingual, NOT cht_jp
+    const kitaujiTitles = [
+      '[北宇治字幕组] FX战士久留美 / FX战士久留美 / FX Senshi Kurumi-chan [03][WebRip][HEVC_AAC][简繁日内封]',
+      '[北宇治字幕组] FX战士久留美 / FX Senshi Kurumi-chan [03][WebRip][HEVC_AAC][繁日内嵌]',
+      '[北宇治字幕组] FX战士久留美 / FX Senshi Kurumi-chan [03][WebRip][HEVC_AAC][简日内嵌]',
+    ];
+    expect(classifySubtitleLanguage(kitaujiTitles[0])).toBe('bilingual');
+    expect(classifySubtitleLanguage(kitaujiTitles[1])).toBe('cht_jp');
+    expect(classifySubtitleLanguage(kitaujiTitles[2])).toBe('chs_jp');
+    expect(countSubtitleLanguages(kitaujiTitles).map((c) => [c.id, c.count])).toEqual([
+      ['chs_jp', 1],
+      ['cht_jp', 1],
+      ['bilingual', 1],
+    ]);
+
+    // 桜都字幕组: pure 简体 / pure 繁体 / 简繁内封
+    const sakuratoTitles = [
+      '[桜都字幕组] FX战士久留美 / FX Senshi Kurumi-chan [06][1080P][简繁内封]',
+      '[桜都字幕组] FX战士久留美 / FX Senshi Kurumi-chan [06][1080P][繁体内嵌]',
+      '[桜都字幕组] FX战士久留美 / FX Senshi Kurumi-chan [06][1080P][简体内嵌]',
+    ];
+    expect(countSubtitleLanguages(sakuratoTitles).map((c) => [c.id, c.count])).toEqual([
+      ['chs', 1],
+      ['cht', 1],
+      ['bilingual', 1],
+    ]);
+
+    // LoliHouse [ASSx2], DBD-Raws [简繁外挂], DBFC [中日双语字幕], 黒ネズミたち (ABEMA / 日配版)
+    expect(
+      classifySubtitleLanguage('[LoliHouse] FX战士久留美 / FX Senshi Kurumi-chan - 02 [WebRip 1080p HEVC-10bit AAC ASSx2]'),
+    ).toBe('bilingual');
+    expect(
+      classifySubtitleLanguage('[DBD-Raws][名侦探柯南剧场版29][1080P][BDRip][HEVC-10bit][简繁外挂][FLACx3][MKV]'),
+    ).toBe('bilingual');
+    expect(
+      classifySubtitleLanguage('【DBFC字幕组】【龙珠超 比鲁斯】【007】【中日双语字幕】【1080P】【MP4】'),
+    ).toBe('chs_jp');
+    expect(
+      classifySubtitleLanguage('[黒ネズミたち] FX 战士久留美 / FX Senshi Kurumi-chan - 08 (ABEMA 1920x1080 AVC AAC MKV)'),
+    ).toBe('unknown');
+    expect(
+      classifySubtitleLanguage('[黒ネズミたち] 紫禁·御喵房（日配版） / Paws & Palaces (Japanese Dub) - 11 (ABEMA 1920x1080 AVC AAC MKV)'),
+    ).toBe('unknown');
+  });
+
   it('filters auto-chase subscription updates by languageFilter and avoids downloading duplicate language variants for the same episode', async () => {
     const animeFolder = path.join(downloadDir, 'LangFilterAnime');
     fs.mkdirSync(animeFolder, { recursive: true });
@@ -296,14 +371,14 @@ describe('subscriptionService', () => {
       rssUrl: 'https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4100&subgroupid=583',
       savePath: animeFolder,
       startAfterEpisode: 7,
-      languageFilter: 'chs',
+      languageFilter: 'chs_jp',
     });
 
     const feed: MikanRelease[] = [
-      { ...makeRelease(8, '[1080p][CHT]'), id: 'ep8-cht', title: '[ANi] 测试番 - 08 [1080p][CHT]' },
-      { ...makeRelease(8, '[1080p][简日内嵌]'), id: 'ep8-chsjp', title: '[ANi] 测试番 - 08 [1080p][简日内嵌]' },
-      { ...makeRelease(8, '[1080p][简繁内封]'), id: 'ep8-bilingual', title: '[ANi] 测试番 - 08 [1080p][简繁内封]' },
-      { ...makeRelease(9, '[1080p][BIG5]'), id: 'ep9-cht', title: '[ANi] 测试番 - 09 [1080p][BIG5]' },
+      { ...makeRelease(8, '[1080p][繁日内嵌]'), id: 'ep8-chtjp', title: '[悠哈璃羽] 测试番 - 08 [1080p][繁日内嵌]' },
+      { ...makeRelease(8, '[1080p][简日内嵌]'), id: 'ep8-chsjp', title: '[悠哈璃羽] 测试番 - 08 [1080p][简日内嵌]' },
+      { ...makeRelease(8, '[1080p][简日内嵌 v2]'), id: 'ep8-chsjp-v2', title: '[悠哈璃羽] 测试番 - 08 [1080p][简日内嵌]' },
+      { ...makeRelease(9, '[1080p][简繁日内封]'), id: 'ep9-bilingual', title: '[悠哈璃羽] 测试番 - 09 [1080p][简繁日内封]' },
     ];
 
     const pushedTitles: string[] = [];
@@ -319,10 +394,10 @@ describe('subscriptionService', () => {
       notifyFn: vi.fn(),
     });
 
-    // Only ONE CHS-compatible variant of Ep 8 is downloaded; CHT Ep 8 and BIG5 Ep 9 are skipped, and second CHS Ep 8 variant is deduplicated
+    // Only ONE 简日双语 variant of Ep 8 is downloaded; 繁日内嵌 Ep 8 & 简繁日内封 Ep 9 are skipped, and second 简日 Ep 8 is deduplicated
     expect(summary.newDownloads).toBe(1);
     expect(addMock).toHaveBeenCalledTimes(1);
     expect(pushedTitles[0]).toContain('08');
-    expect(pushedTitles[0]).not.toContain('CHT');
+    expect(pushedTitles[0]).toContain('简日内嵌');
   });
 });

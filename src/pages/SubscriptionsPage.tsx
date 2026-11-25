@@ -145,8 +145,11 @@ export const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({
         savePath: sub.savePath,
         category: sub.category,
         startAfterEpisode: sub.startAfterEpisode,
+        languageFilter: sub.languageFilter,
         includeKeywords: sub.includeKeywords,
         excludeKeywords: sub.excludeKeywords,
+        cloudTargetDir: sub.cloudTargetDir,
+        deleteLocalAfterCloudMove: sub.deleteLocalAfterCloudMove,
         enabled: !sub.enabled,
       });
       await onRefreshSubscriptions();

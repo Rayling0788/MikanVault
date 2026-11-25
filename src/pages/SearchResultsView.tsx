@@ -210,6 +210,15 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
     [subgroupFilteredReleases],
   );
 
+  const unclassifiedLanguageCount = useMemo(() => {
+    const classified = availableLanguages.reduce((sum, lang) => sum + lang.count, 0);
+    return Math.max(0, subgroupFilteredReleases.length - classified);
+  }, [subgroupFilteredReleases.length, availableLanguages]);
+
+  const showLanguageFilterBar =
+    availableLanguages.length >= 2 ||
+    (availableLanguages.length === 1 && unclassifiedLanguageCount > 0);
+
   const filteredReleases = useMemo(() => {
     const kw = releaseFilterText.trim().toLowerCase();
     return subgroupFilteredReleases.filter((rel) => {
@@ -688,7 +697,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                 </div>
               )}
 
-              {availableLanguages.length > 0 && (
+              {showLanguageFilterBar && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="mr-1 inline-flex items-center gap-1 text-[11.5px] text-slate-400">
                     <Languages className="h-3.5 w-3.5 text-sky-400" />

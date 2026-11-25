@@ -135,6 +135,16 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
     return countSubtitleLanguages(activeSubgroup.episodes.map((ep) => ep.title));
   }, [activeSubgroup]);
 
+  const unclassifiedLanguageCount = useMemo(() => {
+    if (!activeSubgroup) return 0;
+    const classified = availableLanguages.reduce((sum, lang) => sum + lang.count, 0);
+    return Math.max(0, activeSubgroup.episodes.length - classified);
+  }, [activeSubgroup, availableLanguages]);
+
+  const showLanguageFilterBar =
+    availableLanguages.length >= 2 ||
+    (availableLanguages.length === 1 && unclassifiedLanguageCount > 0);
+
   const filteredEpisodes = useMemo(() => {
     if (!activeSubgroup) return [];
     const q = filterText.trim().toLowerCase();
@@ -428,42 +438,55 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               </div>
             </div>
 
-            {/* Subtitle Language Filter Pills */}
+            {/* Subtitle Language Filter Pills or Single-Language Status */}
             {activeSubgroup && availableLanguages.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/[0.06] bg-[#12151C]/55 px-3 py-2">
-                <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+              showLanguageFilterBar ? (
+                <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/[0.06] bg-[#12151C]/55 px-3 py-2">
+                  <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+                    <Languages className="h-3.5 w-3.5 text-sky-400" />
+                    字幕语言筛选：
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLanguageFilter('all')}
+                    className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                      languageFilter === 'all'
+                        ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                        : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    全部语言 ({activeSubgroup.episodes.length})
+                  </button>
+                  {availableLanguages.map((lang) => {
+                    const active = languageFilter === lang.id;
+                    return (
+                      <button
+                        key={lang.id}
+                        type="button"
+                        onClick={() => setLanguageFilter(lang.id)}
+                        className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                          active
+                            ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                            : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {lang.shortLabel} ({lang.count})
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.06] bg-[#12151C]/45 px-3 py-1.5 text-[11.5px] text-slate-400">
                   <Languages className="h-3.5 w-3.5 text-sky-400" />
-                  字幕语言筛选：
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setLanguageFilter('all')}
-                  className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
-                    languageFilter === 'all'
-                      ? 'bg-sky-500 font-semibold text-[#0B0D11]'
-                      : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  全部语言 ({activeSubgroup.episodes.length})
-                </button>
-                {availableLanguages.map((lang) => {
-                  const active = languageFilter === lang.id;
-                  return (
-                    <button
-                      key={lang.id}
-                      type="button"
-                      onClick={() => setLanguageFilter(lang.id)}
-                      className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
-                        active
-                          ? 'bg-sky-500 font-semibold text-[#0B0D11]'
-                          : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      {lang.shortLabel} ({lang.count})
-                    </button>
-                  );
-                })}
-              </div>
+                  <span>
+                    字幕语言：
+                    <span className="font-medium text-sky-300">{availableLanguages[0].shortLabel}</span>
+                    <span className="text-slate-500">
+                      （当前字幕组全部 {activeSubgroup.episodes.length} 条资源均为该语言）
+                    </span>
+                  </span>
+                </div>
+              )
             )}
 
             {/* Batch Selection & Expand All Toolbar */}

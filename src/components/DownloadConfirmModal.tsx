@@ -700,7 +700,7 @@ export const DownloadConfirmModal: React.FC<DownloadConfirmModalProps> = ({
                     <Languages className="h-3 w-3 text-sky-400" />
                     追更语言：
                   </span>
-                  {SUBTITLE_LANGUAGE_OPTIONS.slice(0, 6).map((opt) => (
+                  {SUBTITLE_LANGUAGE_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
                       type="button"
