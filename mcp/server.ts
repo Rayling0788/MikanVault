@@ -1,5 +1,11 @@
 import path from 'node:path';
-import type { AddDownloadRequest, MikanSeasonName, QbControlAction } from '../src/shared/types';
+import type {
+  AddDownloadRequest,
+  MikanSeasonName,
+  QbControlAction,
+  SubtitleLanguageFilter,
+} from '../src/shared/types';
+import { matchesSubtitleLanguage } from '../src/shared/subtitleLanguage';
 import {
   cancelCloudJob,
   getCloudDriveStatus,
@@ -155,6 +161,11 @@ export function createMikanVaultMcpServer() {
                 type: 'boolean',
                 description: 'If true with subgroupId, fetch full episode history via ExpandEpisodeTable',
               },
+              languageFilter: {
+                type: 'string',
+                enum: ['all', 'chs', 'cht', 'bilingual', 'chs_jp', 'cht_jp', 'raw'],
+                description: 'Optional subtitle language filter for returned episodes',
+              },
             },
             required: ['bangumiId'],
           },
@@ -165,22 +176,28 @@ export function createMikanVaultMcpServer() {
           const detail = await getBangumiDetail(bangumiId);
           const subgroupId =
             typeof args.subgroupId === 'string' ? args.subgroupId.trim() : undefined;
+          const languageFilter =
+            typeof args.languageFilter === 'string'
+              ? (args.languageFilter as SubtitleLanguageFilter)
+              : undefined;
+
+          let subgroups = detail.subgroups;
           if (subgroupId && args.expandEpisodes) {
             const expanded = await expandSubgroupEpisodes(bangumiId, subgroupId, 200);
-            return {
-              ...detail,
-              subgroups: detail.subgroups.map((sg) =>
-                sg.id === subgroupId && expanded.length > 0 ? { ...sg, episodes: expanded } : sg,
-              ),
-            };
+            subgroups = subgroups.map((sg) =>
+              sg.id === subgroupId && expanded.length > 0 ? { ...sg, episodes: expanded } : sg,
+            );
           }
           if (subgroupId) {
-            return {
-              ...detail,
-              subgroups: detail.subgroups.filter((sg) => sg.id === subgroupId),
-            };
+            subgroups = subgroups.filter((sg) => sg.id === subgroupId);
           }
-          return detail;
+          if (languageFilter && languageFilter !== 'all') {
+            subgroups = subgroups.map((sg) => ({
+              ...sg,
+              episodes: sg.episodes.filter((ep) => matchesSubtitleLanguage(ep.title, languageFilter)),
+            }));
+          }
+          return { ...detail, subgroups };
         },
       },
       {
@@ -465,6 +482,11 @@ export function createMikanVaultMcpServer() {
               },
               savePath: { type: 'string' },
               category: { type: 'string' },
+              languageFilter: {
+                type: 'string',
+                enum: ['all', 'chs', 'cht', 'bilingual', 'chs_jp', 'cht_jp', 'raw'],
+                description: 'Subtitle language filter (all, chs, cht, bilingual, chs_jp, cht_jp, raw)',
+              },
               includeKeywords: { type: 'string' },
               excludeKeywords: { type: 'string' },
               offloadToGoogleDrive: { type: 'boolean' },
@@ -508,6 +530,10 @@ export function createMikanVaultMcpServer() {
             category: typeof args.category === 'string' ? args.category : settings.qbCategory,
             startAfterEpisode:
               typeof args.startAfterEpisode === 'number' ? args.startAfterEpisode : 0,
+            languageFilter:
+              typeof args.languageFilter === 'string'
+                ? (args.languageFilter as SubtitleLanguageFilter)
+                : undefined,
             includeKeywords:
               typeof args.includeKeywords === 'string' ? args.includeKeywords : undefined,
             excludeKeywords:

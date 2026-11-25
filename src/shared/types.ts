@@ -371,6 +371,15 @@ export interface AppSettings {
   googleDriveIncludeInLibrary: boolean;
 }
 
+export type SubtitleLanguageFilter =
+  | 'all'
+  | 'chs'
+  | 'cht'
+  | 'bilingual'
+  | 'chs_jp'
+  | 'cht_jp'
+  | 'raw';
+
 export interface SubscriptionItem {
   id: string;
   bangumiId: string;
@@ -383,6 +392,7 @@ export interface SubscriptionItem {
   category: string;
   /** Auto-download episodes strictly greater than this number (0 = all) */
   startAfterEpisode: number;
+  languageFilter?: SubtitleLanguageFilter;
   includeKeywords?: string;
   excludeKeywords?: string;
   cloudTargetDir?: string;
@@ -408,6 +418,7 @@ export interface UpsertSubscriptionRequest {
   savePath: string;
   category?: string;
   startAfterEpisode: number;
+  languageFilter?: SubtitleLanguageFilter;
   includeKeywords?: string;
   excludeKeywords?: string;
   cloudTargetDir?: string;

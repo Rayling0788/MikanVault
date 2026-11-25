@@ -376,6 +376,12 @@ const mockApi: MikanApi = {
       savePath: req.savePath || joinSavePath(mockSettings.downloadRootDir, req.bangumiTitle),
       category: req.category || mockSettings.qbCategory || 'MikanVault',
       startAfterEpisode: req.startAfterEpisode ?? 0,
+      languageFilter:
+        req.languageFilter === undefined
+          ? existing?.languageFilter
+          : req.languageFilter === 'all'
+            ? undefined
+            : req.languageFilter,
       includeKeywords: req.includeKeywords,
       excludeKeywords: req.excludeKeywords,
       enabled: req.enabled ?? existing?.enabled ?? true,

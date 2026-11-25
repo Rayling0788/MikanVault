@@ -11,13 +11,20 @@ import {
   ChevronDown,
   Loader2,
   BellRing,
+  Languages,
 } from 'lucide-react';
 import type {
   MikanBangumiDetail,
   MikanRelease,
   MikanSubgroup,
   SubscriptionItem,
+  SubtitleLanguageFilter,
 } from '@shared/types';
+import {
+  countSubtitleLanguages,
+  getSubtitleLanguageLabel,
+  matchesSubtitleLanguage,
+} from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { PosterImage } from '@/components/PosterImage';
 import { ReleaseRow } from '@/components/ReleaseRow';
@@ -35,17 +42,20 @@ interface BangumiDetailViewProps {
     release: MikanRelease,
     detail: MikanBangumiDetail,
     subgroup?: MikanSubgroup | null,
+    preferredLanguageFilter?: SubtitleLanguageFilter,
   ) => void;
   onRequestBatchDownload: (
     releases: MikanRelease[],
     detail: MikanBangumiDetail,
     onDoneClear: () => void,
     subgroup?: MikanSubgroup | null,
+    preferredLanguageFilter?: SubtitleLanguageFilter,
   ) => void;
   onRequestSubscribe: (
     detail: MikanBangumiDetail,
     subgroup: MikanSubgroup,
     existing?: SubscriptionItem | null,
+    preferredLanguageFilter?: SubtitleLanguageFilter,
   ) => void;
   onOpenRssFeed: (rssUrl: string) => void;
 }
@@ -66,6 +76,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   const [expandingSubgroupId, setExpandingSubgroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeSubgroupId, setActiveSubgroupId] = useState<string>('');
+  const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [filterText, setFilterText] = useState('');
 
   const fetchDetail = async () => {
@@ -96,6 +107,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
       return;
     }
     setFilterText('');
+    setLanguageFilter('all');
     void fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bangumiId]);
@@ -118,12 +130,20 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
     );
   }, [subscriptions, detail, activeSubgroup]);
 
+  const availableLanguages = useMemo(() => {
+    if (!activeSubgroup) return [];
+    return countSubtitleLanguages(activeSubgroup.episodes.map((ep) => ep.title));
+  }, [activeSubgroup]);
+
   const filteredEpisodes = useMemo(() => {
     if (!activeSubgroup) return [];
     const q = filterText.trim().toLowerCase();
-    if (!q) return activeSubgroup.episodes;
-    return activeSubgroup.episodes.filter((ep) => ep.title.toLowerCase().includes(q));
-  }, [activeSubgroup, filterText]);
+    return activeSubgroup.episodes.filter((ep) => {
+      if (!matchesSubtitleLanguage(ep.title, languageFilter)) return false;
+      if (q && !ep.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [activeSubgroup, filterText, languageFilter]);
 
   const enrichedFilteredEpisodes = useMemo(() => {
     if (!detail) return filteredEpisodes;
@@ -139,9 +159,13 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   const selection = useReleaseSelection(enrichedFilteredEpisodes);
 
   useEffect(() => {
+    setLanguageFilter('all');
+  }, [bangumiId, activeSubgroup?.id]);
+
+  useEffect(() => {
     selection.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bangumiId, activeSubgroup?.id]);
+  }, [bangumiId, activeSubgroup?.id, languageFilter]);
 
   const handleExpandSubgroup = async () => {
     if (!detail || !activeSubgroup) return;
@@ -279,7 +303,9 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               {detail && activeSubgroup && (
                 <button
                   type="button"
-                  onClick={() => onRequestSubscribe(detail, activeSubgroup, activeSubscription)}
+                  onClick={() =>
+                    onRequestSubscribe(detail, activeSubgroup, activeSubscription, languageFilter)
+                  }
                   className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-[12.5px] font-semibold transition ${
                     activeSubscription
                       ? 'border border-[#22C55E]/35 bg-[#22C55E]/15 text-emerald-200 hover:bg-[#22C55E]/25'
@@ -402,6 +428,44 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               </div>
             </div>
 
+            {/* Subtitle Language Filter Pills */}
+            {activeSubgroup && availableLanguages.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/[0.06] bg-[#12151C]/55 px-3 py-2">
+                <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+                  <Languages className="h-3.5 w-3.5 text-sky-400" />
+                  字幕语言筛选：
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLanguageFilter('all')}
+                  className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                    languageFilter === 'all'
+                      ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                      : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  全部语言 ({activeSubgroup.episodes.length})
+                </button>
+                {availableLanguages.map((lang) => {
+                  const active = languageFilter === lang.id;
+                  return (
+                    <button
+                      key={lang.id}
+                      type="button"
+                      onClick={() => setLanguageFilter(lang.id)}
+                      className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                        active
+                          ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                          : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {lang.shortLabel} ({lang.count})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Batch Selection & Expand All Toolbar */}
             {enrichedFilteredEpisodes.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-[#12151C]/70 px-3.5 py-2">
@@ -457,7 +521,9 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
             {/* Episode Release List */}
             {enrichedFilteredEpisodes.length === 0 ? (
               <div className="card-elevated rounded-2xl py-12 text-center text-[13px] text-slate-400">
-                没有匹配“{filterText}”的资源
+                {languageFilter !== 'all'
+                  ? `当前「${getSubtitleLanguageLabel(languageFilter)}」筛选下没有匹配的资源${filterText ? `（关键词：${filterText}）` : ''}`
+                  : `没有匹配“${filterText}”的资源`}
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -469,7 +535,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
                     selectable
                     selected={selection.isSelected(ep.id)}
                     onToggleSelect={(r, shiftKey) => selection.toggle(r.id, shiftKey)}
-                    onDownload={(r) => onRequestDownload(r, detail, activeSubgroup)}
+                    onDownload={(r) => onRequestDownload(r, detail, activeSubgroup, languageFilter)}
                   />
                 ))}
               </div>
@@ -492,6 +558,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               detail,
               selection.clear,
               activeSubgroup,
+              languageFilter,
             )
           }
         />

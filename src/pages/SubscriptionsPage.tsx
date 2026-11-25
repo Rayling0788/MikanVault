@@ -14,12 +14,14 @@ import {
   Loader2,
   Sparkles,
   History,
+  Languages,
 } from 'lucide-react';
 import type {
   AppSettings,
   SubscriptionItem,
   SubscriptionLogEntry,
 } from '@shared/types';
+import { getSubtitleLanguageLabel } from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { formatRelativeDate } from '@/lib/format';
 import { PosterImage } from '@/components/PosterImage';
@@ -283,6 +285,12 @@ export const SubscriptionsPage: React.FC<SubscriptionsPageProps> = ({
                         ? `跳过 ≤ 第 ${sub.startAfterEpisode} 集 · 从第 ${sub.startAfterEpisode + 1} 集起追更`
                         : '追更该字幕组全部集数'}
                     </span>
+                    {sub.languageFilter && sub.languageFilter !== 'all' && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-violet-400/30 bg-violet-500/14 px-2 py-0.5 text-violet-200">
+                        <Languages className="h-3 w-3" />
+                        语言：{getSubtitleLanguageLabel(sub.languageFilter)}
+                      </span>
+                    )}
                     {sub.includeKeywords && (
                       <span className="rounded-md border border-[#38BDF8]/25 bg-[#38BDF8]/10 px-2 py-0.5 text-sky-300">
                         包含：{sub.includeKeywords}

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Cloud,
+  Languages,
 } from 'lucide-react';
 import type {
   AppSettings,
@@ -17,7 +18,9 @@ import type {
   MikanBangumiDetail,
   MikanSubgroup,
   SubscriptionItem,
+  SubtitleLanguageFilter,
 } from '@shared/types';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { joinSavePath } from '@/lib/format';
 import { PosterImage } from './PosterImage';
@@ -31,6 +34,7 @@ export interface SubscribeModalTarget {
   existing?: SubscriptionItem | null;
   preferredSavePath?: string;
   detectedMaxEpisode?: number;
+  preferredLanguageFilter?: SubtitleLanguageFilter;
 }
 
 interface SubscribeModalProps {
@@ -53,6 +57,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
   const [localDetectedCount, setLocalDetectedCount] = useState<number>(0);
   const [savePath, setSavePath] = useState('');
   const [category, setCategory] = useState('MikanVault');
+  const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [includeKeywords, setIncludeKeywords] = useState('');
   const [excludeKeywords, setExcludeKeywords] = useState('');
   const [checkImmediately, setCheckImmediately] = useState(true);
@@ -73,6 +78,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
     setError(null);
     setSubmitting(false);
     setCategory(existing?.category || settings?.qbCategory || 'MikanVault');
+    setLanguageFilter(existing?.languageFilter || target.preferredLanguageFilter || 'all');
     setIncludeKeywords(existing?.includeKeywords || '');
     setExcludeKeywords(existing?.excludeKeywords || '');
     setCheckImmediately(!existing);
@@ -237,6 +243,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
         savePath: savePath.trim(),
         category: category.trim() || undefined,
         startAfterEpisode: Math.max(0, Number(startAfterEpisode) || 0),
+        languageFilter,
         includeKeywords: includeKeywords.trim() || undefined,
         excludeKeywords: excludeKeywords.trim() || undefined,
         cloudTargetDir: cloudOffload && cloudSeriesTarget ? cloudSeriesTarget : undefined,
@@ -463,6 +470,39 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
                 )}
               </div>
             )}
+
+            {/* Subtitle Language Filter */}
+            <div className="space-y-1.5 rounded-xl border border-white/[0.08] bg-[#12151C]/65 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-slate-200">
+                  <Languages className="h-3.5 w-3.5 text-sky-400" />
+                  自动追更字幕语言筛选
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  当字幕组同时发布简/繁/双语多版本时，仅下载所选语言
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {SUBTITLE_LANGUAGE_OPTIONS.map((opt) => {
+                  const active = languageFilter === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setLanguageFilter(opt.id)}
+                      title={opt.description}
+                      className={`rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition ${
+                        active
+                          ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                          : 'border border-white/[0.08] bg-[#0B0D11]/70 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {opt.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Keyword Filters & Category */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

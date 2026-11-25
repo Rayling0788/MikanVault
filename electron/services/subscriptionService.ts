@@ -16,6 +16,7 @@ import type {
   UpsertSubscriptionRequest,
 } from '../../src/shared/types';
 import { IPC_CHANNELS } from '../../src/shared/types';
+import { matchesSubtitleLanguage } from '../../src/shared/subtitleLanguage';
 import {
   appendSubscriptionLog,
   getSettings,
@@ -264,6 +265,12 @@ export function upsertSubscription(req: UpsertSubscriptionRequest): Subscription
     savePath,
     category: req.category?.trim() || existing?.category || settings.qbCategory || 'MikanVault',
     startAfterEpisode: safeStartAfter,
+    languageFilter:
+      req.languageFilter === undefined
+        ? existing?.languageFilter
+        : req.languageFilter === 'all'
+          ? undefined
+          : req.languageFilter,
     includeKeywords: req.includeKeywords?.trim() || undefined,
     excludeKeywords: req.excludeKeywords?.trim() || undefined,
     cloudTargetDir: req.cloudTargetDir?.trim() || undefined,
@@ -369,6 +376,9 @@ export async function checkSingleSubscription(
           if (epNum <= sub.startAfterEpisode) return false;
           if (localInfo.episodeNumbers.has(epNum)) return false;
         }
+        if (!matchesSubtitleLanguage(rel.title, sub.languageFilter)) {
+          return false;
+        }
         if (!matchesSubscriptionKeywords(rel.title, sub.includeKeywords, sub.excludeKeywords)) {
           return false;
         }
@@ -419,8 +429,15 @@ export async function checkSingleSubscription(
 
     let added = 0;
     let lastErr: string | undefined;
+    const pushedEpisodesInRun = new Set<number>();
 
     for (const { rel, epNum } of candidates) {
+      if (epNum !== undefined && pushedEpisodesInRun.has(epNum)) {
+        seenIds.add(rel.id);
+        updated.downloadedReleaseIds = Array.from(seenIds);
+        continue;
+      }
+
       const res = await addDownloadFn({
         torrentUrl: rel.torrentUrl,
         magnetUrl: rel.magnetUrl,
@@ -442,6 +459,7 @@ export async function checkSingleSubscription(
         updated.totalAutoDownloaded += 1;
         updated.lastTriggeredAt = Date.now();
         if (epNum !== undefined) {
+          pushedEpisodesInRun.add(epNum);
           updated.lastDownloadedEpisode = Math.max(updated.lastDownloadedEpisode ?? 0, epNum);
         }
         appendSubscriptionLog({

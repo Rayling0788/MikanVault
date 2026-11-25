@@ -13,13 +13,20 @@ import {
   BellRing,
   Cloud,
   HardDrive,
+  Languages,
 } from 'lucide-react';
 import type {
   AppSettings,
   CloudDriveStatus,
   MikanRelease,
   QbConnectionStatus,
+  SubtitleLanguageFilter,
 } from '@shared/types';
+import {
+  getSubtitleLanguageLabel,
+  inferCommonSubtitleLanguage,
+  SUBTITLE_LANGUAGE_OPTIONS,
+} from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import {
   deriveSeriesFolderNameFromTitle,
@@ -40,6 +47,7 @@ export interface DownloadModalTarget {
   subgroupId?: string;
   subgroupName?: string;
   rssUrl?: string;
+  preferredLanguageFilter?: SubtitleLanguageFilter;
 }
 
 export interface DownloadModalSubmitSummary {
@@ -76,6 +84,7 @@ export const DownloadConfirmModal: React.FC<DownloadConfirmModalProps> = ({
   const [savePath, setSavePath] = useState('');
   const [category, setCategory] = useState('mikan');
   const [enableAutoSub, setEnableAutoSub] = useState(false);
+  const [autoSubLanguage, setAutoSubLanguage] = useState<SubtitleLanguageFilter>('all');
   const [storageMode, setStorageMode] = useState<'local' | 'cloud_offload' | 'cloud_direct'>(
     'local',
   );
@@ -92,6 +101,12 @@ export const DownloadConfirmModal: React.FC<DownloadConfirmModalProps> = ({
     setItems(targets);
     setSubmitting(false);
     setEnableAutoSub(false);
+    const explicitLang = targets.find((t) => t.preferredLanguageFilter)?.preferredLanguageFilter;
+    setAutoSubLanguage(
+      explicitLang && explicitLang !== 'all'
+        ? explicitLang
+        : inferCommonSubtitleLanguage(targets.map((t) => t.release.title)),
+    );
     setStorageMode('local');
     setCategory(settings?.qbCategory || 'mikan');
     setDeleteLocalAfterMove(settings?.googleDriveAutoDeleteLocal ?? true);
@@ -351,6 +366,7 @@ export const DownloadConfirmModal: React.FC<DownloadConfirmModalProps> = ({
             savePath: resolvedSavePath,
             category: category.trim() || undefined,
             startAfterEpisode: subscribableInfo.maxSelectedEpisode,
+            languageFilter: autoSubLanguage,
             cloudTargetDir:
               storageMode === 'cloud_offload' && resolvedCloudRoot
                 ? joinSavePath(resolvedCloudRoot, subscribableInfo.bangumiTitle)
@@ -646,31 +662,61 @@ export const DownloadConfirmModal: React.FC<DownloadConfirmModalProps> = ({
 
           {/* Auto-Subscription Toggle */}
           {subscribableInfo && (
-            <label
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition ${
+            <div
+              className={`rounded-xl border p-3.5 transition ${
                 enableAutoSub
                   ? 'border-[#FF7A2F]/50 bg-[#FF7A2F]/[0.09] shadow-[inset_0_1px_0_rgba(255,122,47,0.16)]'
                   : 'border-white/[0.08] bg-[#12151C]/75 hover:border-white/[0.15]'
               }`}
             >
-              <input
-                type="checkbox"
-                checked={enableAutoSub}
-                onChange={(e) => setEnableAutoSub(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 accent-[#FF7A2F]"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 text-[13px] font-semibold text-white">
-                  <BellRing className="h-3.5 w-3.5 text-[#FF9E4F]" />
-                  <span>同时开启自动订阅追番（{subscribableInfo.subgroupName}）</span>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={enableAutoSub}
+                  onChange={(e) => setEnableAutoSub(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 accent-[#FF7A2F]"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-white">
+                    <BellRing className="h-3.5 w-3.5 text-[#FF9E4F]" />
+                    <span>同时开启自动订阅追番（{subscribableInfo.subgroupName}）</span>
+                    {autoSubLanguage !== 'all' && (
+                      <span className="rounded-md bg-sky-500/18 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-300">
+                        {getSubtitleLanguageLabel(autoSubLanguage)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-slate-400">
+                    {subscribableInfo.maxSelectedEpisode > 0
+                      ? `后续有第 ${subscribableInfo.maxSelectedEpisode + 1} 集等新更新推送时，将自动下载到上方同一文件夹（自动跳过本次已选）`
+                      : '后续该字幕组有新集推送时，将自动下载到上方同一文件夹'}
+                  </p>
                 </div>
-                <p className="mt-0.5 text-[11.5px] leading-relaxed text-slate-400">
-                  {subscribableInfo.maxSelectedEpisode > 0
-                    ? `后续有第 ${subscribableInfo.maxSelectedEpisode + 1} 集等新更新推送时，将自动下载到上方同一文件夹（自动跳过本次已选）`
-                    : '后续该字幕组有新集推送时，将自动下载到上方同一文件夹'}
-                </p>
-              </div>
-            </label>
+              </label>
+
+              {enableAutoSub && (
+                <div className="mt-2.5 ml-7 flex flex-wrap items-center gap-1.5 border-t border-white/[0.07] pt-2.5">
+                  <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                    <Languages className="h-3 w-3 text-sky-400" />
+                    追更语言：
+                  </span>
+                  {SUBTITLE_LANGUAGE_OPTIONS.slice(0, 6).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setAutoSubLanguage(opt.id)}
+                      className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+                        autoSubLanguage === opt.id
+                          ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                          : 'border border-white/[0.08] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {opt.shortLabel}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {/* qBittorrent Status Banner */}

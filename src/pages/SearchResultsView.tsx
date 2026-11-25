@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Trash2,
   X,
+  Languages,
 } from 'lucide-react';
 import {
   MIKAN_DAY_LABELS,
@@ -19,7 +20,12 @@ import {
   type MikanScheduleResponse,
   type MikanSearchResult,
   type MikanSeasonName,
+  type SubtitleLanguageFilter,
 } from '@shared/types';
+import {
+  countSubtitleLanguages,
+  matchesSubtitleLanguage,
+} from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { PosterImage } from '@/components/PosterImage';
 import { ReleaseRow } from '@/components/ReleaseRow';
@@ -96,6 +102,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
 
   // Release result filtering
   const [subgroupFilter, setSubgroupFilter] = useState<string>('all');
+  const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [releaseFilterText, setReleaseFilterText] = useState('');
 
   // Historical season archive state
@@ -189,10 +196,24 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
       .sort((a, b) => b[1] - a[1]);
   }, [allReleases]);
 
-  const filteredReleases = useMemo(() => {
-    const kw = releaseFilterText.trim().toLowerCase();
+  const subgroupFilteredReleases = useMemo(() => {
     return allReleases.filter((rel) => {
       if (subgroupFilter !== 'all' && (rel.subgroup || '').trim() !== subgroupFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [allReleases, subgroupFilter]);
+
+  const availableLanguages = useMemo(
+    () => countSubtitleLanguages(subgroupFilteredReleases.map((r) => r.title)),
+    [subgroupFilteredReleases],
+  );
+
+  const filteredReleases = useMemo(() => {
+    const kw = releaseFilterText.trim().toLowerCase();
+    return subgroupFilteredReleases.filter((rel) => {
+      if (!matchesSubtitleLanguage(rel.title, languageFilter)) {
         return false;
       }
       if (kw && !rel.title.toLowerCase().includes(kw)) {
@@ -200,14 +221,18 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
       }
       return true;
     });
-  }, [allReleases, subgroupFilter, releaseFilterText]);
+  }, [subgroupFilteredReleases, languageFilter, releaseFilterText]);
 
   const selection = useReleaseSelection(filteredReleases);
 
   useEffect(() => {
+    setLanguageFilter('all');
+  }, [result?.query, subgroupFilter]);
+
+  useEffect(() => {
     selection.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.query, subgroupFilter]);
+  }, [result?.query, subgroupFilter, languageFilter]);
 
   const archiveItems = useMemo(() => {
     if (!archiveData) return [];
@@ -658,6 +683,40 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                       }`}
                     >
                       {sg} ({count})
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {availableLanguages.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 inline-flex items-center gap-1 text-[11.5px] text-slate-400">
+                    <Languages className="h-3.5 w-3.5 text-sky-400" />
+                    字幕语言：
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLanguageFilter('all')}
+                    className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                      languageFilter === 'all'
+                        ? 'bg-sky-500 text-[#0B0D11] font-semibold'
+                        : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    全部语言 ({subgroupFilteredReleases.length})
+                  </button>
+                  {availableLanguages.map((lang) => (
+                    <button
+                      key={lang.id}
+                      type="button"
+                      onClick={() => setLanguageFilter(lang.id)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                        languageFilter === lang.id
+                          ? 'bg-sky-500 text-[#0B0D11] font-semibold'
+                          : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {lang.shortLabel} ({lang.count})
                     </button>
                   ))}
                 </div>

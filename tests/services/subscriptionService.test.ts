@@ -13,6 +13,11 @@ import {
   upsertSubscription,
 } from '../../electron/services/subscriptionService';
 import type { MikanRelease } from '../../src/shared/types';
+import {
+  detectSubtitleLanguage,
+  inferCommonSubtitleLanguage,
+  matchesSubtitleLanguage,
+} from '../../src/shared/subtitleLanguage';
 
 function makeRelease(ep: number, extraTags = '[WebRip 1080p HEVC][简繁内封]'): MikanRelease {
   const pad = String(ep).padStart(2, '0');
@@ -225,5 +230,99 @@ describe('subscriptionService', () => {
     expect(onlineSummary.newDownloads).toBe(1);
     expect(onlineSummary.errors).toBe(0);
     expect(listSubscriptions()[0].totalAutoDownloaded).toBe(1);
+  });
+
+  it('detects subtitle languages accurately without false positives and infers common language', () => {
+    expect(detectSubtitleLanguage('[ANi] 胆大党 - 01 [1080P][Baha][WEB-DL][CHT].mp4')).toMatchObject({
+      hasCht: true,
+      hasChs: false,
+      isBilingual: false,
+    });
+    expect(detectSubtitleLanguage('[LoliHouse] 葬送的芙莉莲 - 01 [WebRip 1080p][简繁内封].mkv')).toMatchObject({
+      hasChs: true,
+      hasCht: true,
+      isBilingual: true,
+    });
+    expect(detectSubtitleLanguage('[Sakurato] Frieren - 05 [1080p][简日内嵌].mkv')).toMatchObject({
+      hasChs: true,
+      hasCht: false,
+      isChsJp: true,
+    });
+    expect(detectSubtitleLanguage('[Sub] Anime - 05 [1080p][繁日双语].mkv')).toMatchObject({
+      hasCht: true,
+      hasChs: false,
+      isChtJp: true,
+    });
+    expect(detectSubtitleLanguage('[Sub] Anime - 05 [1080p][RAW][JPN].mkv')).toMatchObject({
+      isRawOrJpnOnly: true,
+      hasChs: false,
+      hasCht: false,
+    });
+    // Ensure "1.2 GB" and "Disc" do NOT false-match GB/SC
+    expect(detectSubtitleLanguage('[Raw] Episode 01 [1080p Disc 1.2 GB].mkv')).toMatchObject({
+      hasChs: false,
+      hasCht: false,
+      isBilingual: false,
+    });
+
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [GB][1080p]', 'chs')).toBe(true);
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [BIG5][1080p]', 'chs')).toBe(false);
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简日][1080p]', 'chs')).toBe(true);
+    expect(matchesSubtitleLanguage('[Sub] Ep 01 [简繁][1080p]', 'bilingual')).toBe(true);
+
+    expect(
+      inferCommonSubtitleLanguage([
+        '[Sub] Anime - 01 [1080p][简日]',
+        '[Sub] Anime - 02 [1080p][简日]',
+      ]),
+    ).toBe('chs_jp');
+    expect(
+      inferCommonSubtitleLanguage([
+        '[Sub] Anime - 01 [1080p][CHS]',
+        '[Sub] Anime - 01 [1080p][CHT]',
+      ]),
+    ).toBe('all');
+  });
+
+  it('filters auto-chase subscription updates by languageFilter and avoids downloading duplicate language variants for the same episode', async () => {
+    const animeFolder = path.join(downloadDir, 'LangFilterAnime');
+    fs.mkdirSync(animeFolder, { recursive: true });
+
+    const sub = upsertSubscription({
+      bangumiId: '4100',
+      bangumiTitle: '语言筛选测试番',
+      subgroupId: '583',
+      subgroupName: 'ANi',
+      rssUrl: 'https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4100&subgroupid=583',
+      savePath: animeFolder,
+      startAfterEpisode: 7,
+      languageFilter: 'chs',
+    });
+
+    const feed: MikanRelease[] = [
+      { ...makeRelease(8, '[1080p][CHT]'), id: 'ep8-cht', title: '[ANi] 测试番 - 08 [1080p][CHT]' },
+      { ...makeRelease(8, '[1080p][简日内嵌]'), id: 'ep8-chsjp', title: '[ANi] 测试番 - 08 [1080p][简日内嵌]' },
+      { ...makeRelease(8, '[1080p][简繁内封]'), id: 'ep8-bilingual', title: '[ANi] 测试番 - 08 [1080p][简繁内封]' },
+      { ...makeRelease(9, '[1080p][BIG5]'), id: 'ep9-cht', title: '[ANi] 测试番 - 09 [1080p][BIG5]' },
+    ];
+
+    const pushedTitles: string[] = [];
+    const addMock = vi.fn(async (req: { title: string }) => {
+      pushedTitles.push(req.title);
+      return { ok: true, savePath: animeFolder };
+    });
+    const summary = await checkSubscriptions(sub.id, {
+      fetchRss: async () => feed,
+      getTorrentsFn: async () => [],
+      testConnFn: async () => ({ ok: true, connected: true, qbRunning: true, exeExists: true }),
+      addDownloadFn: addMock,
+      notifyFn: vi.fn(),
+    });
+
+    // Only ONE CHS-compatible variant of Ep 8 is downloaded; CHT Ep 8 and BIG5 Ep 9 are skipped, and second CHS Ep 8 variant is deduplicated
+    expect(summary.newDownloads).toBe(1);
+    expect(addMock).toHaveBeenCalledTimes(1);
+    expect(pushedTitles[0]).toContain('08');
+    expect(pushedTitles[0]).not.toContain('CHT');
   });
 });

@@ -366,7 +366,7 @@ const MikanVaultShell: React.FC = () => {
               initialCoverUrl={overlay.initialCoverUrl}
               initialDetail={overlay.initialDetail}
               subscriptions={subscriptions}
-              onRequestDownload={(release, detail, subgroup) =>
+              onRequestDownload={(release, detail, subgroup, preferredLanguageFilter) =>
                 setDownloadModal({
                   targets: [
                     {
@@ -377,11 +377,18 @@ const MikanVaultShell: React.FC = () => {
                       subgroupId: subgroup?.id || release.subgroupId,
                       subgroupName: subgroup?.name || release.subgroup,
                       rssUrl: subgroup?.rssUrl,
+                      preferredLanguageFilter,
                     },
                   ],
                 })
               }
-              onRequestBatchDownload={(releases, detail, onDoneClear, subgroup) =>
+              onRequestBatchDownload={(
+                releases,
+                detail,
+                onDoneClear,
+                subgroup,
+                preferredLanguageFilter,
+              ) =>
                 setDownloadModal({
                   targets: releases.map((release) => ({
                     release,
@@ -391,11 +398,12 @@ const MikanVaultShell: React.FC = () => {
                     subgroupId: subgroup?.id || release.subgroupId,
                     subgroupName: subgroup?.name || release.subgroup,
                     rssUrl: subgroup?.rssUrl,
+                    preferredLanguageFilter,
                   })),
                   onSuccessClear: onDoneClear,
                 })
               }
-              onRequestSubscribe={(detail, subgroup, existing) =>
+              onRequestSubscribe={(detail, subgroup, existing, preferredLanguageFilter) =>
                 setSubscribeTarget({
                   bangumiId: detail.id,
                   bangumiTitle: detail.title,
@@ -403,6 +411,7 @@ const MikanVaultShell: React.FC = () => {
                   detail,
                   subgroup,
                   existing,
+                  preferredLanguageFilter,
                 })
               }
               onOpenRssFeed={(rssUrl) => {
