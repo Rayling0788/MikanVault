@@ -1,0 +1,46 @@
+{
+  "name": "mikan-vault",
+  "version": "0.1.0",
+  "private": true,
+  "author": "MikanVault",
+  "description": "MikanVault — 蜜柑计划追番、qBittorrent 下载管理与本地番剧媒体库",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev:vite": "vite",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=cjs --target=node20 --packages=external --outfile=dist-electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist-electron/preload.cjs",
+    "build:mcp": "esbuild mcp/cli.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist-mcp/mikanvault-mcp.cjs",
+    "build:renderer": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "npm run build:renderer && npm run build:electron && npm run build:mcp",
+    "mcp": "node dist-mcp/mikanvault-mcp.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "dev": "concurrently -k -n vite,electron -c cyan,yellow \"npm:dev:vite\" \"wait-on http://127.0.0.1:5173 && npm run build:electron && electron . --dev\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --win portable"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "fast-xml-parser": "^5.0.0",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5",
+    "wait-on": "^8.0.2"
+  }
+}

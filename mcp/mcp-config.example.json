@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mikanvault": {
+      "command": "node",
+      "args": [
+        "C:\\Path\\To\\MikanVault\\resources\\mcp\\mikanvault-mcp.cjs"
+      ],
+      "env": {
+        "MIKANVAULT_DATA_DIR": "C:\\Users\\<YourName>\\AppData\\Roaming\\mikan-vault"
+      }
+    }
+  }
+}

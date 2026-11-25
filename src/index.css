@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #0B0D11;
+  --color-surface: #12151C;
+  --color-surface-elevated: #181C26;
+  --color-surface-hover: #1E2432;
+  --color-mikan: #FF7A2F;
+  --color-mikan-light: #FF9E4F;
+  --color-mikan-deep: #E5621A;
+  --color-emerald-accent: #22C55E;
+  --color-sky-accent: #38BDF8;
+
+  --font-sans: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #0B0D11;
+    color: #F1F5F9;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: rgba(255, 122, 47, 0.28);
+    color: #FFFFFF;
+  }
+}
+
+/* Frameless Windows titlebar drag utilities */
+.titlebar-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Refined dark cinema scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 122, 47, 0.45);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Glass surface & subtle shimmer helpers */
+.glass-panel {
+  background: rgba(18, 21, 28, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+@keyframes mikan-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: mikan-shimmer 1.6s ease-in-out infinite;
+}

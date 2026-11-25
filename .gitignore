@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+dist-mcp/
+release/
+.mikanvault-data/
+*.log
+npm-debug.log*
+SGRE.zip
+.DS_Store
+Thumbs.db
+*.tmp

@@ -1,0 +1,27 @@
+appId: com.mikanvault.desktop
+productName: MikanVault
+copyright: Copyright © 2026 MikanVault
+directories:
+  output: release
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+extraResources:
+  - from: dist-mcp
+    to: mcp
+  - from: mcp/README.md
+    to: mcp/README.md
+  - from: mcp/mcp-config.example.json
+    to: mcp/mcp-config.example.json
+  - from: README.md
+    to: README.md
+asar: true
+win:
+  signAndEditExecutable: false
+  target:
+    - target: portable
+      arch:
+        - x64
+portable:
+  artifactName: MikanVault-${version}-portable.exe
