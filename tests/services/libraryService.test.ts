@@ -40,6 +40,9 @@ describe('libraryService', () => {
       downloadRootDir: mainRoot,
       extraLibraryDirs: [extraRoot],
       playerMode: 'system',
+      googleDriveEnabled: false,
+      googleDriveDir: '',
+      googleDriveIncludeInLibrary: false,
     });
   });
 

@@ -36,6 +36,7 @@ let cloudWatcherTimer: ReturnType<typeof setInterval> | null = null;
 let isProcessingQueue = false;
 const liveJobProgress = new Map<string, Partial<CloudTransferJob>>();
 const cancelledJobIds = new Set<string>();
+const activeRunningJobIds = new Set<string>();
 
 class JobCancelledError extends Error {
   constructor() {
@@ -175,7 +176,41 @@ export function enqueueCloudTransferJob(input: EnqueueCloudJobInput): CloudTrans
   return job;
 }
 
+export function recoverStaleCloudJobs(minStaleAgeMs = 0): number {
+  const jobs = getCloudTransferJobs();
+  const now = Date.now();
+  let recovered = 0;
+  const updated = jobs.map((job) => {
+    if (
+      job.status === 'copying' &&
+      !activeRunningJobIds.has(job.id) &&
+      now - (job.updatedAt || job.createdAt || 0) >= minStaleAgeMs
+    ) {
+      recovered += 1;
+      liveJobProgress.delete(job.id);
+      cancelledJobIds.delete(job.id);
+      return {
+        ...job,
+        status: 'failed' as const,
+        cancelling: false,
+        speedBytesPerSec: 0,
+        etaSeconds: 0,
+        currentFileName: undefined,
+        error: '上次应用关闭导致传输中断，请点击「重新上传」继续（已传完的文件会自动跳过）',
+        updatedAt: now,
+      };
+    }
+    return job;
+  });
+  if (recovered > 0) {
+    saveCloudTransferJobs(updated);
+  }
+  return recovered;
+}
+
 export function listCloudJobs(): CloudTransferJob[] {
+  // Recover any stale copying jobs from external/crashed processes idle for >90s
+  recoverStaleCloudJobs(90_000);
   return getCloudTransferJobs()
     .map((job) => {
       if (job.status === 'copying') {
@@ -203,7 +238,7 @@ export function removeCloudJob(jobId: string): ActionResult {
   if (!target) {
     return { ok: false, error: '找不到该云盘上传任务' };
   }
-  if (target.status === 'copying') {
+  if (target.status === 'copying' && activeRunningJobIds.has(jobId)) {
     return { ok: false, error: '正在复制传输的任务不能移除，请先取消上传' };
   }
   saveCloudTransferJobs(jobs.filter((j) => j.id !== jobId));
@@ -223,12 +258,29 @@ export function cancelCloudJob(jobId: string): ActionResult {
       ...target,
       status: 'cancelled',
       cancelling: false,
-      error: '已取消上传',
+      speedBytesPerSec: 0,
+      etaSeconds: 0,
+      error: '已取消上传（已保留本地文件）',
       updatedAt: Date.now(),
     });
     return { ok: true };
   }
   if (target.status === 'copying') {
+    if (!activeRunningJobIds.has(jobId)) {
+      liveJobProgress.delete(jobId);
+      cancelledJobIds.delete(jobId);
+      upsertCloudTransferJob({
+        ...target,
+        status: 'cancelled',
+        cancelling: false,
+        speedBytesPerSec: 0,
+        etaSeconds: 0,
+        currentFileName: undefined,
+        error: '已取消上传（已保留本地文件）',
+        updatedAt: Date.now(),
+      });
+      return { ok: true };
+    }
     cancelledJobIds.add(jobId);
     const existingLive = liveJobProgress.get(jobId) || {};
     liveJobProgress.set(jobId, {
@@ -259,42 +311,61 @@ async function computePathStats(
   return { totalBytes, totalFiles };
 }
 
-function createJobProgressReporter(jobId: string, totalBytes: number) {
+function createJobProgressReporter(
+  jobId: string,
+  totalBytes: number,
+  onCheckpoint?: (snapshot: {
+    copiedFiles: number;
+    transferredBytes: number;
+    progress: number;
+    currentFileName?: string;
+  }) => void,
+) {
   const startedAt = Date.now();
   let transferredBytes = 0;
   let copiedFiles = 0;
 
-  const publish = (currentFileName?: string) => {
+  const publish = (inFlightBytes: number, currentFileName?: string) => {
     const now = Date.now();
+    const effectiveBytes = Math.min(totalBytes, transferredBytes + Math.max(0, inFlightBytes));
     const elapsedSec = Math.max(0.25, (now - startedAt) / 1000);
-    const speedBytesPerSec = transferredBytes > 0 ? Math.round(transferredBytes / elapsedSec) : 0;
-    const remaining = Math.max(0, totalBytes - transferredBytes);
+    const speedBytesPerSec = effectiveBytes > 0 ? Math.round(effectiveBytes / elapsedSec) : 0;
+    const remaining = Math.max(0, totalBytes - effectiveBytes);
     const etaSeconds =
       speedBytesPerSec > 0 ? Math.max(0, Math.round(remaining / speedBytesPerSec)) : 0;
-    const progress =
-      totalBytes > 0 ? Math.min(0.999, transferredBytes / totalBytes) : 0;
+    const progress = totalBytes > 0 ? Math.min(0.999, effectiveBytes / totalBytes) : 0;
 
     liveJobProgress.set(jobId, {
       ...(liveJobProgress.get(jobId) || {}),
       progress,
-      transferredBytes,
+      transferredBytes: effectiveBytes,
       speedBytesPerSec,
       etaSeconds,
       copiedFiles,
       currentFileName,
       updatedAt: now,
     });
+    return progress;
   };
 
   return {
     isCancelled: () => cancelledJobIds.has(jobId),
     onFileStart: (fileName: string) => {
-      publish(fileName);
+      publish(0, fileName);
+    },
+    onFileProgress: (inFlightBytes: number, fileName: string) => {
+      publish(inFlightBytes, fileName);
     },
     onFileVerified: (fileBytes: number, fileName: string) => {
       transferredBytes += fileBytes;
       copiedFiles += 1;
-      publish(fileName);
+      const progress = publish(0, fileName);
+      onCheckpoint?.({
+        copiedFiles,
+        transferredBytes,
+        progress,
+        currentFileName: fileName,
+      });
     },
   };
 }
@@ -302,6 +373,7 @@ function createJobProgressReporter(jobId: string, totalBytes: number) {
 export interface CopyProgressCallbacks {
   isCancelled?: () => boolean;
   onFileStart?: (fileName: string) => void;
+  onFileProgress?: (inFlightBytes: number, fileName: string) => void;
   onFileVerified?: (fileBytes: number, fileName: string) => void;
   copiedDestPaths?: string[];
 }
@@ -334,7 +406,22 @@ export async function copyPathCrossDrive(
   const fileName = path.basename(destPath);
   callbacks?.onFileStart?.(fileName);
   await fsp.mkdir(path.dirname(destPath), { recursive: true });
-  await fsp.copyFile(srcPath, destPath);
+
+  // Poll destination file size read-only while standard OS fsp.copyFile runs
+  const pollTimer = setInterval(() => {
+    void fsp
+      .stat(destPath)
+      .then((st) => {
+        callbacks?.onFileProgress?.(Math.min(srcStat.size, st.size), fileName);
+      })
+      .catch(() => {});
+  }, 450);
+
+  try {
+    await fsp.copyFile(srcPath, destPath);
+  } finally {
+    clearInterval(pollTimer);
+  }
   callbacks?.copiedDestPaths?.push(destPath);
 
   if (callbacks?.isCancelled?.()) {
@@ -473,6 +560,7 @@ export async function processCloudTransferQueue(
       }
 
       processed += 1;
+      activeRunningJobIds.add(job.id);
       upsertCloudTransferJob({
         ...job,
         status: 'copying',
@@ -490,7 +578,7 @@ export async function processCloudTransferQueue(
         const srcPath = resolveTorrentSourcePath(torrent, job.localSavePath);
         const destPath = path.join(job.cloudTargetDir, path.basename(srcPath));
         const stats = await computePathStats(srcPath);
-        upsertCloudTransferJob({
+        let latestJob: CloudTransferJob = {
           ...job,
           source: 'download',
           status: 'copying',
@@ -502,9 +590,20 @@ export async function processCloudTransferQueue(
           cancelling: false,
           error: undefined,
           updatedAt: Date.now(),
-        });
+        };
+        upsertCloudTransferJob(latestJob);
 
-        const reporter = createJobProgressReporter(job.id, stats.totalBytes);
+        const reporter = createJobProgressReporter(job.id, stats.totalBytes, (snap) => {
+          latestJob = {
+            ...latestJob,
+            copiedFiles: snap.copiedFiles,
+            transferredBytes: snap.transferredBytes,
+            progress: snap.progress,
+            currentFileName: snap.currentFileName,
+            updatedAt: Date.now(),
+          };
+          upsertCloudTransferJob(latestJob);
+        });
         const { copiedFiles, totalBytes } = await copyPathCrossDrive(srcPath, destPath, {
           ...reporter,
           copiedDestPaths,
@@ -605,6 +704,8 @@ export async function processCloudTransferQueue(
             updatedAt: Date.now(),
           });
         }
+      } finally {
+        activeRunningJobIds.delete(job.id);
       }
     }
 
@@ -618,6 +719,7 @@ export async function processCloudTransferQueue(
 
 export function startCloudTransferWatcher(intervalMs = 20_000): void {
   stopCloudTransferWatcher();
+  recoverStaleCloudJobs(0);
   cloudWatcherTimer = setInterval(() => {
     void processCloudTransferQueue();
   }, intervalMs);
@@ -638,12 +740,24 @@ async function runLibraryUploadJob(
   targetDir: string,
   expectedTotalBytes: number,
 ): Promise<CloudUploadLibraryResult> {
+  activeRunningJobIds.add(job.id);
   const copiedDestPaths: string[] = [];
+  let checkpointJob: CloudTransferJob = { ...job };
   try {
     let copiedFiles = 0;
     let totalBytes = 0;
     const verifiedSrcFiles: string[] = [];
-    const reporter = createJobProgressReporter(job.id, expectedTotalBytes);
+    const reporter = createJobProgressReporter(job.id, expectedTotalBytes, (snap) => {
+      checkpointJob = {
+        ...checkpointJob,
+        copiedFiles: snap.copiedFiles,
+        transferredBytes: snap.transferredBytes,
+        progress: snap.progress,
+        currentFileName: snap.currentFileName,
+        updatedAt: Date.now(),
+      };
+      upsertCloudTransferJob(checkpointJob);
+    });
 
     for (const srcFile of cleanFilePaths) {
       if (cancelledJobIds.has(job.id)) {
@@ -656,13 +770,33 @@ async function runLibraryUploadJob(
       const srcKey = normalizePathKey(path.resolve(srcFile));
       const destKey = normalizePathKey(path.resolve(destFile));
       if (srcKey !== destKey) {
-        const res = await copyPathCrossDrive(srcFile, destFile, {
-          ...reporter,
-          copiedDestPaths,
-        });
-        copiedFiles += res.copiedFiles;
-        totalBytes += res.totalBytes;
-        verifiedSrcFiles.push(srcFile);
+        // Smart resume: skip copying if destination already exists with identical byte size
+        const srcStat = await fsp.stat(srcFile);
+        let alreadyVerified = false;
+        if (fs.existsSync(destFile)) {
+          try {
+            const destStat = await fsp.stat(destFile);
+            if (destStat.size === srcStat.size) {
+              alreadyVerified = true;
+              copiedFiles += 1;
+              totalBytes += destStat.size;
+              verifiedSrcFiles.push(srcFile);
+              reporter.onFileVerified(destStat.size, path.basename(destFile));
+            }
+          } catch {
+            // Re-copy cleanly if stat fails
+          }
+        }
+
+        if (!alreadyVerified) {
+          const res = await copyPathCrossDrive(srcFile, destFile, {
+            ...reporter,
+            copiedDestPaths,
+          });
+          copiedFiles += res.copiedFiles;
+          totalBytes += res.totalBytes;
+          verifiedSrcFiles.push(srcFile);
+        }
       }
 
       if (cancelledJobIds.has(job.id)) {
@@ -823,6 +957,8 @@ async function runLibraryUploadJob(
       deletedLocal: false,
       error: message,
     };
+  } finally {
+    activeRunningJobIds.delete(job.id);
   }
 }
 
@@ -915,6 +1051,7 @@ export async function uploadLibraryToCloud(
     updatedAt: now,
   };
   upsertCloudTransferJob(job);
+  activeRunningJobIds.add(job.id);
 
   if (req.background) {
     void runLibraryUploadJob(
@@ -952,9 +1089,10 @@ export async function retryCloudJob(jobId: string): Promise<ActionResult> {
   if (!job) {
     return { ok: false, error: '找不到指定的云盘上传任务' };
   }
-  if (job.status === 'copying') {
+  if (job.status === 'copying' && activeRunningJobIds.has(jobId)) {
     return { ok: false, error: '该任务正在上传中，无需重试' };
   }
+  cancelledJobIds.delete(jobId);
 
   if (job.source === 'library' && job.sourceFilePaths && job.sourceFilePaths.length > 0) {
     const startRes = await uploadLibraryToCloud({

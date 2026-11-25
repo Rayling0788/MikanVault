@@ -8,6 +8,7 @@ import {
   enqueueCloudTransferJob,
   listCloudJobs,
   processCloudTransferQueue,
+  recoverStaleCloudJobs,
   removeCloudJob,
   retryCloudJob,
   uploadLibraryToCloud,
@@ -18,6 +19,7 @@ import {
   setSeriesMeta,
   setWatchedRecord,
   updateSettings,
+  upsertCloudTransferJob,
 } from '../../electron/services/configStore';
 import { scanLibrary } from '../../electron/services/libraryService';
 import type { QbTorrentItem } from '../../src/shared/types';
@@ -356,5 +358,78 @@ describe('cloudService', () => {
     expect(fs.existsSync(path.join(cloudRoot, '孤独摇滚', '[LoliHouse] Bocchi - 01.mkv'))).toBe(
       true,
     );
+  });
+
+  it('recovers stale copying jobs from crashed sessions, cancels zombie jobs cleanly, and skips already-verified files on retry', async () => {
+    const localSeriesDir = path.join(localRoot, '药屋少女测试');
+    const ep1 = path.join(localSeriesDir, 'ep49.mkv');
+    const ep2 = path.join(localSeriesDir, 'ep50.mkv');
+    fs.mkdirSync(localSeriesDir, { recursive: true });
+    fs.writeFileSync(ep1, 'ep49-verified-payload');
+    fs.writeFileSync(ep2, 'ep50-remaining-payload');
+
+    // Simulate ep49 already copied cleanly before previous app session closed
+    const cloudSeriesDir = path.join(cloudRoot, '药屋少女测试');
+    fs.mkdirSync(cloudSeriesDir, { recursive: true });
+    fs.writeFileSync(path.join(cloudSeriesDir, 'ep49.mkv'), 'ep49-verified-payload');
+
+    const zombieId = 'zombie-job-1';
+    upsertCloudTransferJob({
+      id: zombieId,
+      source: 'library',
+      seriesId: 'kusuriya-local',
+      sourceFilePaths: [ep1, ep2],
+      torrentName: '药屋少女测试',
+      bangumiTitle: '药屋少女测试',
+      localSavePath: localSeriesDir,
+      cloudTargetDir: cloudSeriesDir,
+      deleteLocalAfterMove: false,
+      status: 'copying',
+      progress: 0,
+      copiedFiles: 0,
+      totalFiles: 2,
+      totalBytes: 43,
+      createdAt: Date.now() - 300_000,
+      updatedAt: Date.now() - 300_000,
+    });
+
+    // Zombie cancel must succeed immediately without hanging at "取消中..."
+    const zombieCancel = cancelCloudJob(zombieId);
+    expect(zombieCancel.ok).toBe(true);
+    expect(listCloudJobs().find((j) => j.id === zombieId)?.status).toBe('cancelled');
+    expect(fs.existsSync(ep1)).toBe(true);
+
+    // Retry resumes smartly, skipping already-verified ep49 and copying ep50
+    const retryRes = await retryCloudJob(zombieId);
+    expect(retryRes.ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const completedJob = listCloudJobs().find(
+      (j) => j.bangumiTitle === '药屋少女测试' && j.status === 'completed',
+    );
+    expect(completedJob).toBeDefined();
+    expect(completedJob?.copiedFiles).toBe(2);
+    expect(fs.existsSync(path.join(cloudSeriesDir, 'ep50.mkv'))).toBe(true);
+
+    // Test startup stale recovery directly
+    const zombieId2 = 'zombie-job-2';
+    upsertCloudTransferJob({
+      id: zombieId2,
+      source: 'library',
+      seriesId: 'kusuriya-local',
+      sourceFilePaths: [ep1, ep2],
+      torrentName: '药屋少女测试',
+      bangumiTitle: '药屋少女测试',
+      localSavePath: localSeriesDir,
+      cloudTargetDir: cloudSeriesDir,
+      deleteLocalAfterMove: false,
+      status: 'copying',
+      createdAt: Date.now() - 10_000,
+      updatedAt: Date.now() - 10_000,
+    });
+
+    const recoveredCount = recoverStaleCloudJobs(0);
+    expect(recoveredCount).toBe(1);
+    expect(listCloudJobs().find((j) => j.id === zombieId2)?.status).toBe('failed');
   });
 });
