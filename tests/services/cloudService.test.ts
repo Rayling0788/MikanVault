@@ -680,4 +680,185 @@ describe('cloudService', () => {
       await new Promise((r) => setTimeout(r, 40));
     }
   });
+
+  it('allows destination ctimeMs shifts during verification while still rejecting mtimeMs changes', async () => {
+    const localVideo = path.join(localRoot, 'ep01.mkv');
+    fs.writeFileSync(localVideo, 'winfsp-ctime-shift-payload');
+    const targetDir = path.join(cloudRoot, 'WinFspSeries');
+    const destVideo = path.join(targetDir, 'ep01.mkv');
+
+    const origLstat = fsp.lstat.bind(fsp);
+    let destCalls = 0;
+    const lstatSpy = vi.spyOn(fsp, 'lstat').mockImplementation(async (targetPath, ...rest) => {
+      const stat = await origLstat(targetPath, ...(rest as []));
+      if (path.resolve(String(targetPath)) === path.resolve(destVideo)) {
+        destCalls += 1;
+        if (destCalls >= 2) {
+          return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, {
+            ctimeMs: stat.ctimeMs + 5000,
+          });
+        }
+      }
+      return stat;
+    });
+
+    try {
+      const okRes = await uploadLibraryToCloud({
+        kind: 'episode',
+        seriesId: 'winfsp-ctime',
+        seriesTitle: 'WinFspSeries',
+        folderPath: localRoot,
+        filePaths: [localVideo],
+        deleteLocal: true,
+      });
+      expect(okRes.ok).toBe(true);
+      expect(okRes.deletedLocal).toBe(true);
+      expect(fs.existsSync(localVideo)).toBe(false);
+      expect(fs.readFileSync(destVideo, 'utf8')).toBe('winfsp-ctime-shift-payload');
+    } finally {
+      lstatSpy.mockRestore();
+    }
+
+    const localVideo2 = path.join(localRoot, 'ep02.mkv');
+    const destVideo2 = path.join(targetDir, 'ep02.mkv');
+    fs.writeFileSync(localVideo2, 'winfsp-mtime-tamper-payload');
+    let dest2Calls = 0;
+    const lstatSpy2 = vi.spyOn(fsp, 'lstat').mockImplementation(async (targetPath, ...rest) => {
+      const stat = await origLstat(targetPath, ...(rest as []));
+      if (path.resolve(String(targetPath)) === path.resolve(destVideo2)) {
+        dest2Calls += 1;
+        if (dest2Calls >= 2) {
+          return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, {
+            mtimeMs: stat.mtimeMs + 5000,
+          });
+        }
+      }
+      return stat;
+    });
+
+    try {
+      const failRes = await uploadLibraryToCloud({
+        kind: 'episode',
+        seriesId: 'winfsp-mtime',
+        seriesTitle: 'WinFspSeries',
+        folderPath: localRoot,
+        filePaths: [localVideo2],
+        deleteLocal: true,
+      });
+      expect(failRes.ok).toBe(false);
+      expect(failRes.deletedLocal).toBe(false);
+      expect(fs.existsSync(localVideo2)).toBe(true);
+      expect(fs.existsSync(destVideo2)).toBe(false);
+    } finally {
+      lstatSpy2.mockRestore();
+    }
+  });
+
+  it('preserves partial progress when a multi-file upload fails mid-way', async () => {
+    const ep1 = path.join(localRoot, 'ep01.mkv');
+    const ep2 = path.join(localRoot, 'ep02.mkv');
+    fs.writeFileSync(ep1, 'first-episode-bytes');
+    fs.writeFileSync(ep2, 'second-episode-bytes');
+
+    const origCopyFile = fsp.copyFile.bind(fsp);
+    let copyCount = 0;
+    const copySpy = vi.spyOn(fsp, 'copyFile').mockImplementation(async (src, dest, mode) => {
+      copyCount += 1;
+      if (copyCount === 2) {
+        throw new Error('simulated disk error on second file');
+      }
+      return origCopyFile(src, dest, mode);
+    });
+
+    try {
+      const libRes = await uploadLibraryToCloud({
+        kind: 'series',
+        seriesId: 'partial-progress-lib',
+        seriesTitle: 'ProgressSeries',
+        folderPath: localRoot,
+        filePaths: [ep1, ep2],
+        deleteLocal: true,
+      });
+      expect(libRes.ok).toBe(false);
+      const libJob = listCloudJobs().find((j) => j.id === libRes.jobId);
+      expect(libJob?.status).toBe('failed');
+      expect(libJob?.copiedFiles).toBe(1);
+      expect(libJob?.transferredBytes).toBe(Buffer.byteLength('first-episode-bytes'));
+      expect(libJob?.progress).toBeGreaterThan(0);
+      expect(fs.existsSync(ep1)).toBe(true);
+      expect(fs.existsSync(ep2)).toBe(true);
+    } finally {
+      copySpy.mockRestore();
+    }
+
+    const qDir = path.join(localRoot, 'QueueProgress');
+    const qEp1 = path.join(qDir, '01.mkv');
+    const qEp2 = path.join(qDir, '02.mkv');
+    fs.mkdirSync(qDir, { recursive: true });
+    fs.writeFileSync(qEp1, 'queue-first');
+    fs.writeFileSync(qEp2, 'queue-second');
+    const torrent = makeTorrent({
+      hash: '5555666677778888999900001111222233334444',
+      name: 'QueueProgress',
+      savePath: localRoot,
+      contentPath: qDir,
+    });
+    const qJob = enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: torrent.name,
+      localSavePath: localRoot,
+      cloudTargetDir: path.join(cloudRoot, 'QueueProgress'),
+    });
+
+    let qCopyCount = 0;
+    const copySpy2 = vi.spyOn(fsp, 'copyFile').mockImplementation(async (src, dest, mode) => {
+      qCopyCount += 1;
+      if (qCopyCount === 2) {
+        throw new Error('simulated disconnect on second queue file');
+      }
+      return origCopyFile(src, dest, mode);
+    });
+
+    try {
+      const qSummary = await processCloudTransferQueue({
+        getTorrentsFn: async () => [torrent],
+        controlTorrentFn: async () => ({ ok: true }),
+      });
+      expect(qSummary.failed).toBe(1);
+      const savedQJob = listCloudJobs().find((j) => j.id === qJob.id);
+      expect(savedQJob?.status).toBe('failed');
+      expect(savedQJob?.copiedFiles).toBe(1);
+      expect(savedQJob?.transferredBytes).toBe(Buffer.byteLength('queue-first'));
+      expect(savedQJob?.progress).toBeGreaterThan(0);
+      expect(fs.existsSync(qEp1)).toBe(true);
+      expect(fs.existsSync(qEp2)).toBe(true);
+    } finally {
+      copySpy2.mockRestore();
+    }
+  });
+
+  it('matches qBittorrent completed states case-insensitively', async () => {
+    const localVideo = path.join(localRoot, 'case-state.mkv');
+    fs.writeFileSync(localVideo, 'case-insensitive-state');
+    const torrent = makeTorrent({
+      hash: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555',
+      name: 'case-state.mkv',
+      state: 'StalledUP',
+      savePath: localRoot,
+      contentPath: localVideo,
+    });
+    enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: torrent.name,
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+    });
+
+    const summary = await processCloudTransferQueue({
+      getTorrentsFn: async () => [torrent],
+      controlTorrentFn: async () => ({ ok: true }),
+    });
+    expect(summary).toEqual({ processed: 1, moved: 1, failed: 0 });
+    expect(fs.existsSync(path.join(cloudRoot, 'case-state.mkv'))).toBe(true);
+  });
 });

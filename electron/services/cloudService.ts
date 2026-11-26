@@ -39,7 +39,7 @@ const liveJobProgress = new Map<string, Partial<CloudTransferJob>>();
 const activeRunningJobIds = new Set<string>();
 let cachedCloudStatus: { key: string; value: CloudDriveStatus; expiresAt: number } | null = null;
 const completedTorrentStates = new Set([
-  'uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'stoppedUP', 'forcedUP',
+  'uploading', 'stalledup', 'queuedup', 'pausedup', 'stoppedup', 'forcedup',
 ]);
 const CLOUD_STATUS_CACHE_TTL_MS = 10_000;
 
@@ -331,6 +331,22 @@ function saveJobProgress(jobId: string, progress: Partial<CloudTransferJob>): vo
   });
 }
 
+function updateJobRecord(
+  jobId: string,
+  fallback: CloudTransferJob,
+  patch: Partial<CloudTransferJob>,
+): void {
+  updateCloudTransferJobs((jobs) => {
+    const existing = jobs.find((item) => item.id === jobId);
+    if (existing) {
+      Object.assign(existing, patch);
+      return { result: undefined };
+    }
+    jobs.unshift({ ...fallback, ...patch });
+    return { result: undefined };
+  });
+}
+
 function pathsOverlap(first: string, second: string): boolean {
   const a = normalizePathKey(first);
   const b = normalizePathKey(second);
@@ -443,9 +459,13 @@ interface VerifiedFile {
   destinationStat: fs.Stats;
 }
 
-function sameFileVersion(first: fs.Stats, second: fs.Stats): boolean {
-  return second.isFile() && first.dev === second.dev && first.ino === second.ino &&
-    first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
+function sameFileVersion(first: fs.Stats, second: fs.Stats, checkCtime = true): boolean {
+  return second.isFile() &&
+    first.dev === second.dev &&
+    first.ino === second.ino &&
+    first.size === second.size &&
+    first.mtimeMs === second.mtimeMs &&
+    (!checkCtime || first.ctimeMs === second.ctimeMs);
 }
 
 async function checkVerifiedFiles(files: VerifiedFile[]): Promise<void> {
@@ -454,7 +474,7 @@ async function checkVerifiedFiles(files: VerifiedFile[]): Promise<void> {
       fsp.lstat(file.source), fsp.lstat(file.destination),
     ]);
     if (!sameFileVersion(file.sourceStat, source) ||
-        !sameFileVersion(file.destinationStat, destination)) {
+        !sameFileVersion(file.destinationStat, destination, false)) {
       throw new Error('文件在校验后发生变化: ' + file.source);
     }
   }
@@ -541,7 +561,7 @@ export async function copyPathCrossDrive(
     const [sourceHash, destHash] = await Promise.all([hashFile(srcPath), hashFile(destPath)]);
     const [sourceAfter, destAfter] = await Promise.all([fsp.lstat(srcPath), fsp.lstat(destPath)]);
     if (sourceHash !== destHash || !sameFileVersion(srcStat, sourceAfter) ||
-        !sameFileVersion(copiedStat, destAfter)) {
+        !sameFileVersion(copiedStat, destAfter, false)) {
       throw new Error('云盘文件冲突或校验失败: ' + fileName);
     }
     if (callbacks?.isCancelled?.()) throw new JobCancelledError();
@@ -581,7 +601,7 @@ function findMatchingTorrent(
 
 function canOffload(torrent: QbTorrentItem): boolean {
   return torrent.progress === 1 && (torrent.amountLeft ?? 0) === 0 &&
-    completedTorrentStates.has(torrent.state);
+    completedTorrentStates.has((torrent.state || '').toLowerCase());
 }
 
 function resolveTorrentSourcePath(torrent: QbTorrentItem, fallbackSavePath: string): string {
@@ -596,16 +616,24 @@ function resolveTorrentSourcePath(torrent: QbTorrentItem, fallbackSavePath: stri
 }
 
 async function removeEmptySourceDirs(root: string, files: VerifiedFile[]): Promise<void> {
-  const directories = new Set<string>();
+  const rootKey = normalizePathKey(root);
+  const rootPrefix = rootKey.endsWith(path.sep) ? rootKey : rootKey + path.sep;
+  const directories = new Map<string, string>();
   for (const file of files) {
     let directory = path.dirname(file.source);
-    while (directory === root || directory.startsWith(root + path.sep)) {
-      directories.add(directory);
-      if (directory === root) break;
-      directory = path.dirname(directory);
+    while (true) {
+      const dirKey = normalizePathKey(directory);
+      if (dirKey !== rootKey && !dirKey.startsWith(rootPrefix)) break;
+      if (!directories.has(dirKey)) {
+        directories.set(dirKey, directory);
+      }
+      if (dirKey === rootKey) break;
+      const parent = path.dirname(directory);
+      if (normalizePathKey(parent) === dirKey) break;
+      directory = parent;
     }
   }
-  for (const directory of [...directories].sort((a, b) => b.length - a.length)) {
+  for (const directory of [...directories.values()].sort((a, b) => b.length - a.length)) {
     try {
       await fsp.rmdir(directory);
     } catch (error) {
@@ -804,8 +832,7 @@ export async function processCloudTransferQueue(
         liveJobProgress.delete(job.id);
         if (err instanceof JobCancelledError) {
           await cleanupCancelledCloudDest(copiedDestPaths);
-          upsertCloudTransferJob({
-            ...job,
+          updateJobRecord(job.id, job, {
             status: 'cancelled',
             workerPid: undefined,
             finalizing: undefined,
@@ -818,8 +845,7 @@ export async function processCloudTransferQueue(
           });
         } else {
           failed += 1;
-          upsertCloudTransferJob({
-            ...job,
+          updateJobRecord(job.id, job, {
             status: 'failed',
             workerPid: undefined,
             finalizing: undefined,
@@ -1005,9 +1031,8 @@ async function runLibraryUploadJob(
   } catch (err) {
     liveJobProgress.delete(job.id);
     if (err instanceof JobCancelledError) {
-        await cleanupCancelledCloudDest(copiedDestPaths);
-      upsertCloudTransferJob({
-        ...job,
+      await cleanupCancelledCloudDest(copiedDestPaths);
+      updateJobRecord(job.id, job, {
         status: 'cancelled',
         workerPid: undefined,
         finalizing: undefined,
@@ -1030,8 +1055,7 @@ async function runLibraryUploadJob(
     }
 
     const message = err instanceof Error ? err.message : String(err);
-    upsertCloudTransferJob({
-      ...job,
+    updateJobRecord(job.id, job, {
       status: 'failed',
       workerPid: undefined,
       finalizing: undefined,
