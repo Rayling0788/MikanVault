@@ -56,7 +56,11 @@ export const IPC_CHANNELS = {
   DIALOG_PICK_FOLDER: 'dialog:pick-folder',
   DIALOG_PICK_EXECUTABLE: 'dialog:pick-executable',
   SHELL_OPEN_EXTERNAL: 'shell:open-external',
+  WINDOW_SET_THEME: 'window:set-theme',
 } as const;
+
+export type ThemeMode = 'dark' | 'light' | 'system';
+export type ResolvedTheme = 'dark' | 'light';
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
@@ -609,6 +613,7 @@ export interface MikanApi {
   dialogPickFolder: () => Promise<string | null>;
   dialogPickExecutable: () => Promise<string | null>;
   openExternal: (url: string) => Promise<ActionResult>;
+  windowSetTheme?: (theme: ResolvedTheme) => Promise<void>;
 }
 
 declare global {

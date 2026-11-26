@@ -19,12 +19,18 @@ import {
   Cloud,
   Bot,
   Copy,
+  Monitor,
+  Moon,
+  Palette,
+  Sun,
 } from 'lucide-react';
 import type {
   AppSettings,
   CloudDriveStatus,
   McpServerInfo,
   QbConnectionStatus,
+  ResolvedTheme,
+  ThemeMode,
 } from '@shared/types';
 import { api } from '@/lib/api';
 import { formatBytes } from '@/lib/format';
@@ -36,6 +42,9 @@ interface SettingsPageProps {
   onRefreshQb: () => Promise<void>;
   onLaunchQb: () => Promise<{ ok: boolean; error?: string }>;
   launchingQb: boolean;
+  themeMode?: ThemeMode;
+  resolvedTheme?: ResolvedTheme;
+  onChangeThemeMode?: (mode: ThemeMode) => void;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -44,6 +53,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onRefreshQb,
   onLaunchQb,
   launchingQb,
+  themeMode = 'dark',
+  resolvedTheme = 'dark',
+  onChangeThemeMode,
 }) => {
   const { pushToast } = useToast();
   const [form, setForm] = useState<AppSettings | null>(settings);
@@ -216,6 +228,89 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
         </button>
       </div>
+
+      {/* Section 0: Theme & Appearance */}
+      {onChangeThemeMode && (
+        <section className="card-elevated rounded-2xl p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#FF7A2F]/14 text-[#FF7A2F]">
+                <Palette className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <h3 className="text-[15px] font-semibold text-white">外观与主题</h3>
+                <p className="text-[12px] text-slate-400">
+                  支持暗夜影院与霜白浅色即时切换（当前生效：{resolvedTheme === 'light' ? '浅色' : '暗色'}）
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {(
+              [
+                {
+                  id: 'dark' as ThemeMode,
+                  title: '暗夜影院',
+                  desc: '深邃黑曜石画布，沉浸式海报对比度',
+                  Icon: Moon,
+                  previewBg: 'bg-[#090B10] border-white/15',
+                  previewCard: 'bg-[#151A24] border-white/10',
+                },
+                {
+                  id: 'light' as ThemeMode,
+                  title: '霜白浅色',
+                  desc: '通透磨砂日光质感，日间阅读更轻松',
+                  Icon: Sun,
+                  previewBg: 'bg-[#F3F5FA] border-slate-300',
+                  previewCard: 'bg-white border-slate-200',
+                },
+                {
+                  id: 'system' as ThemeMode,
+                  title: '跟随系统',
+                  desc: '自动匹配 Windows 深浅色外观设置',
+                  Icon: Monitor,
+                  previewBg: 'bg-gradient-to-br from-[#090B10] via-[#1B2230] to-[#F3F5FA] border-white/20',
+                  previewCard: 'bg-white/20 border-white/25',
+                },
+              ] as const
+            ).map(({ id, title, desc, Icon, previewBg, previewCard }) => {
+              const active = themeMode === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onChangeThemeMode(id)}
+                  className={`flex flex-col gap-3 rounded-xl border p-3.5 text-left transition ${
+                    active
+                      ? 'border-[#FF7A2F]/65 bg-[#FF7A2F]/[0.1] ring-1 ring-[#FF7A2F]/35'
+                      : 'border-white/[0.08] bg-[#0B0D11]/55 hover:border-white/[0.16]'
+                  }`}
+                >
+                  <div className={`flex h-12 w-full items-center gap-2 rounded-lg border px-2.5 ${previewBg}`}>
+                    <div className="h-7 w-5 rounded bg-[#FF7A2F]/85" />
+                    <div className={`h-7 flex-1 rounded border ${previewCard}`} />
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white">
+                        <Icon className="h-3.5 w-3.5 text-[#FF9E4F]" />
+                        {title}
+                      </span>
+                      {active && (
+                        <span className="rounded-full bg-[#FF7A2F] px-2 py-0.5 text-[10px] font-bold text-[#0B0D11]">
+                          使用中
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">{desc}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Section 1: Mikan Source */}
       <section className="card-elevated rounded-2xl p-6 space-y-4">

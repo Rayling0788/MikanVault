@@ -458,7 +458,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => onOpenBangumi(item)}
-                    className="poster-card group aspect-[3/4] text-left"
+                    className="poster-card cinema-dark-surface group aspect-[3/4] text-left"
                   >
                     <PosterImage
                       url={item.coverUrl}
@@ -604,7 +604,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                     key={b.id}
                     type="button"
                     onClick={() => onOpenBangumi(b)}
-                    className="poster-card group aspect-[3/4] text-left"
+                    className="poster-card cinema-dark-surface group aspect-[3/4] text-left"
                   >
                     <PosterImage
                       url={b.coverUrl}

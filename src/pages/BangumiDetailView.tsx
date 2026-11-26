@@ -228,7 +228,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   return (
     <div className={selection.selectedCount > 0 ? 'pb-24' : 'pb-14'}>
       {/* Full-bleed Ambient Blurred Cover Header */}
-      <div className="relative overflow-hidden border-b border-white/[0.06]">
+      <div className="cinema-dark-surface relative overflow-hidden border-b border-white/[0.06]">
         <div className="pointer-events-none absolute inset-0">
           {bgImg.src && (
             <img

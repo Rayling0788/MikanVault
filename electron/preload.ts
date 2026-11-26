@@ -11,6 +11,7 @@ import {
   type MikanSeasonName,
   type QbConnectionOverride,
   type QbControlAction,
+  type ResolvedTheme,
   type UpsertSubscriptionRequest,
 } from '../src/shared/types';
 
@@ -89,6 +90,8 @@ const mikanApi: MikanApi = {
   dialogPickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_PICK_FOLDER),
   dialogPickExecutable: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_PICK_EXECUTABLE),
   openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),
+  windowSetTheme: (theme: ResolvedTheme) =>
+    ipcRenderer.invoke(IPC_CHANNELS.WINDOW_SET_THEME, theme),
 };
 
 contextBridge.exposeInMainWorld('mikanApi', mikanApi);

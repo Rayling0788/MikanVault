@@ -120,8 +120,18 @@ function registerMikanImageProtocol(): void {
   });
 }
 
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.png'),
+    path.join(app.getAppPath(), 'build', 'icon.png'),
+    path.join(process.resourcesPath, 'build', 'icon.png'),
+  ];
+  return candidates.find((p) => fs.existsSync(p));
+}
+
 function createMainWindow(): BrowserWindow {
   const isWin = process.platform === 'win32';
+  const windowIcon = resolveWindowIcon();
 
   const win = new BrowserWindow({
     width: 1320,
@@ -129,14 +139,15 @@ function createMainWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 680,
     title: 'MikanVault',
-    backgroundColor: '#0B0D11',
+    ...(windowIcon ? { icon: windowIcon } : {}),
+    backgroundColor: '#090B10',
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     ...(isWin
       ? {
           titleBarOverlay: {
-            color: '#0B0D11',
+            color: '#090B10',
             symbolColor: '#94A3B8',
             height: 53,
           },

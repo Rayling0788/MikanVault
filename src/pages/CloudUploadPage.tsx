@@ -213,7 +213,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
   return (
     <div className="mx-auto max-w-[1380px] space-y-6 px-6 py-6 pb-16">
       {/* Cloud Drive Vault Hero Banner */}
-      <section className="relative overflow-hidden rounded-2xl border border-sky-400/20 bg-gradient-to-br from-[#101827] via-[#0F141E] to-[#0B0D11] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+      <section className="cloud-hero-banner relative overflow-hidden rounded-2xl p-6">
         <div className="pointer-events-none absolute -top-24 -right-16 h-64 w-64 rounded-full bg-sky-500/15 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 left-12 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl" />
 

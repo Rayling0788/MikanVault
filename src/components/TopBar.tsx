@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { ArrowLeft, Search, X } from 'lucide-react';
+import { ArrowLeft, Monitor, Moon, Search, Sun, X } from 'lucide-react';
+import type { ResolvedTheme, ThemeMode } from '@shared/types';
 
 interface TopBarProps {
   title: string;
@@ -10,7 +11,21 @@ interface TopBarProps {
   onSearchChange: (value: string) => void;
   onSearchSubmit: (query: string) => void;
   onClearSearch: () => void;
+  themeMode: ThemeMode;
+  resolvedTheme: ResolvedTheme;
+  onCycleTheme: () => void;
   isPreviewMode?: boolean;
+}
+
+function getThemeLabel(mode: ThemeMode): string {
+  switch (mode) {
+    case 'dark':
+      return '暗夜影院';
+    case 'light':
+      return '霜白浅色';
+    case 'system':
+      return '跟随系统';
+  }
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -22,6 +37,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSearchChange,
   onSearchSubmit,
   onClearSearch,
+  themeMode,
+  resolvedTheme,
+  onCycleTheme,
   isPreviewMode = false,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,8 +64,12 @@ export const TopBar: React.FC<TopBarProps> = ({
     }
   };
 
+  const ThemeIcon =
+    themeMode === 'system' ? Monitor : resolvedTheme === 'light' ? Sun : Moon;
+  const themeLabel = getThemeLabel(themeMode);
+
   return (
-    <header className="titlebar-drag flex h-[54px] shrink-0 items-center justify-between gap-4 border-b border-white/[0.055] bg-[#0B0D11]/85 px-6 pr-[152px] backdrop-blur-md">
+    <header className="titlebar-drag surface-topbar flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-6 pr-[152px]">
       {/* Left: Back button + Breadcrumb */}
       <div className="flex min-w-0 items-center gap-3">
         {canGoBack && onGoBack && (
@@ -77,37 +99,51 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Global Mikan Search Bar */}
-      <form
-        onSubmit={handleSubmit}
-        className="titlebar-no-drag relative w-full max-w-[340px]"
-      >
-        <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="搜索番剧、字幕组或关键词..."
-          className="input-cinema h-[34px] w-full rounded-xl pr-16 pl-9 text-[12.5px] placeholder:text-slate-500"
-        />
-        <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
-          {searchQuery ? (
-            <button
-              type="button"
-              onClick={onClearSearch}
-              className="rounded-md p-1 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
-              aria-label="清除搜索"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <kbd className="rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-              Ctrl K
-            </kbd>
-          )}
-        </div>
-      </form>
+      {/* Right: Theme Switcher + Global Mikan Search Bar */}
+      <div className="titlebar-no-drag flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onCycleTheme}
+          title={`当前主题：${themeLabel}（点击切换 暗夜 / 浅色 / 跟随系统）`}
+          aria-label={`切换主题，当前 ${themeLabel}`}
+          className="btn-ghost-dark inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium"
+        >
+          <ThemeIcon
+            className={`h-3.5 w-3.5 ${
+              resolvedTheme === 'light' ? 'text-amber-500' : 'text-[#FF9E4F]'
+            }`}
+          />
+          <span className="hidden md:inline">{themeLabel}</span>
+        </button>
+
+        <form onSubmit={handleSubmit} className="relative w-full max-w-[320px] sm:w-[270px] lg:w-[320px]">
+          <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="搜索番剧、字幕组或关键词..."
+            className="input-cinema h-[34px] w-full rounded-xl pr-16 pl-9 text-[12.5px] placeholder:text-slate-500"
+          />
+          <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={onClearSearch}
+                className="rounded-md p-1 text-slate-400 transition hover:bg-white/[0.08] hover:text-white"
+                aria-label="清除搜索"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <kbd className="rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+                Ctrl K
+              </kbd>
+            )}
+          </div>
+        </form>
+      </div>
     </header>
   );
 };

@@ -553,6 +553,10 @@ const mockApi: MikanApi = {
     }
     return { ok: true };
   },
+
+  async windowSetTheme(): Promise<void> {
+    // No-op in browser preview mode
+  },
 };
 
 export const api: MikanApi = isElectronRuntime ? window.mikanApi! : mockApi;

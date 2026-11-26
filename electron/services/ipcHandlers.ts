@@ -14,6 +14,7 @@ import {
   type MikanSeasonName,
   type QbConnectionOverride,
   type QbControlAction,
+  type ResolvedTheme,
   type UpsertSubscriptionRequest,
 } from '../../src/shared/types';
 import {
@@ -379,4 +380,28 @@ export function registerIpcHandlers(): void {
       }
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.WINDOW_SET_THEME, (_event, theme: ResolvedTheme) => {
+    const isLight = theme === 'light';
+    const bgColor = isLight ? '#F3F5FA' : '#090B10';
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      try {
+        win.setBackgroundColor(bgColor);
+      } catch {
+        // Ignore on platforms/states that reject backgroundColor update
+      }
+      if (process.platform === 'win32') {
+        try {
+          win.setTitleBarOverlay({
+            color: bgColor,
+            symbolColor: isLight ? '#475569' : '#94A3B8',
+            height: 53,
+          });
+        } catch {
+          // Ignore if titleBarOverlay is unavailable
+        }
+      }
+    }
+  });
 }

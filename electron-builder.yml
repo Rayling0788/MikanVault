@@ -6,6 +6,7 @@ directories:
 files:
   - dist/**/*
   - dist-electron/**/*
+  - build/icon.png
   - package.json
 extraResources:
   - from: dist-mcp
@@ -18,6 +19,7 @@ extraResources:
     to: README.md
 asar: true
 win:
+  icon: build/icon.ico
   signAndEditExecutable: false
   target:
     - target: portable

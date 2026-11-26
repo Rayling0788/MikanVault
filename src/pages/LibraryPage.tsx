@@ -17,8 +17,9 @@ import {
   Cloud,
   CloudUpload,
 } from 'lucide-react';
-import type { LibrarySeries } from '@shared/types';
+import type { LibraryEpisode, LibrarySeries } from '@shared/types';
 import { api } from '@/lib/api';
+import { formatEpisodeLabel } from '@/lib/format';
 import { PosterImage } from '@/components/PosterImage';
 import { ContextMenu, type ContextMenuItem } from '@/components/ContextMenu';
 import { ScrapeSeriesModal } from '@/components/ScrapeSeriesModal';
@@ -39,6 +40,18 @@ interface LibraryPageProps {
   onCloudUploaded?: () => void;
 }
 
+type LibraryFilterTab = 'all' | 'watching' | 'local' | 'cloud' | 'completed';
+
+function findNextUnwatchedEpisode(series: LibrarySeries): LibraryEpisode | null {
+  const sorted = [...series.episodes].sort((a, b) => {
+    const na = a.episodeNumber ?? Number.MAX_SAFE_INTEGER;
+    const nb = b.episodeNumber ?? Number.MAX_SAFE_INTEGER;
+    if (na !== nb) return na - nb;
+    return a.fileName.localeCompare(b.fileName, undefined, { numeric: true });
+  });
+  return sorted.find((ep) => !ep.watched) || sorted[0] || null;
+}
+
 export const LibraryPage: React.FC<LibraryPageProps> = ({
   seriesList,
   scanning,
@@ -53,7 +66,9 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 }) => {
   const { pushToast } = useToast();
   const [filter, setFilter] = useState('');
+  const [activeTab, setActiveTab] = useState<LibraryFilterTab>('all');
   const [scrapingAll, setScrapingAll] = useState(false);
+  const [playingPath, setPlayingPath] = useState<string | null>(null);
   const [contextState, setContextState] = useState<{
     x: number;
     y: number;
@@ -67,26 +82,85 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     let episodes = 0;
     let watched = 0;
     let unscraped = 0;
+    let watchingCount = 0;
+    let localCount = 0;
+    let cloudCount = 0;
+    let completedCount = 0;
     for (const s of seriesList) {
       episodes += s.totalEpisodes;
       watched += s.watchedCount;
-      if (!s.scrapedAt && !s.coverUrl) {
-        unscraped += 1;
+      if (!s.scrapedAt && !s.coverUrl) unscraped += 1;
+      if (s.isCloud) cloudCount += 1;
+      else localCount += 1;
+      if (s.totalEpisodes > 0 && s.watchedCount >= s.totalEpisodes) {
+        completedCount += 1;
+      } else if (s.watchedCount > 0 && s.watchedCount < s.totalEpisodes) {
+        watchingCount += 1;
       }
     }
-    return { seriesCount: seriesList.length, episodes, watched, unscraped };
+    return {
+      seriesCount: seriesList.length,
+      episodes,
+      watched,
+      unscraped,
+      watchingCount,
+      localCount,
+      cloudCount,
+      completedCount,
+    };
+  }, [seriesList]);
+
+  const continueWatchingItems = useMemo(() => {
+    return seriesList
+      .filter((s) => s.watchedCount > 0 && s.watchedCount < s.totalEpisodes)
+      .map((s) => ({ series: s, nextEpisode: findNextUnwatchedEpisode(s) }))
+      .filter((item): item is { series: LibrarySeries; nextEpisode: LibraryEpisode } =>
+        Boolean(item.nextEpisode),
+      )
+      .slice(0, 8);
   }, [seriesList]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return seriesList;
-    return seriesList.filter(
-      (s) =>
+    return seriesList.filter((s) => {
+      if (
+        activeTab === 'watching' &&
+        !(s.watchedCount > 0 && s.watchedCount < s.totalEpisodes)
+      ) {
+        return false;
+      }
+      if (activeTab === 'local' && s.isCloud) return false;
+      if (activeTab === 'cloud' && !s.isCloud) return false;
+      if (
+        activeTab === 'completed' &&
+        !(s.totalEpisodes > 0 && s.watchedCount >= s.totalEpisodes)
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return (
         s.title.toLowerCase().includes(q) ||
         (s.originalTitle && s.originalTitle.toLowerCase().includes(q)) ||
         s.folderPath.toLowerCase().includes(q)
-    );
-  }, [seriesList, filter]);
+      );
+    });
+  }, [seriesList, activeTab, filter]);
+
+  const handlePlayContinue = async (ep: LibraryEpisode) => {
+    setPlayingPath(ep.filePath);
+    try {
+      const res = await api.libraryPlay(ep.filePath);
+      if (!res.ok) {
+        pushToast({
+          kind: 'error',
+          title: '启动播放器失败',
+          description: res.error || ep.filePath,
+        });
+      }
+    } finally {
+      setPlayingPath(null);
+    }
+  };
 
   const handleScrapeAll = async () => {
     if (scrapingAll) return;
@@ -189,72 +263,187 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     ];
   }, [contextState, onOpenSeries, onRequestSubscribe, pushToast]);
 
+  const filterTabs: Array<{ id: LibraryFilterTab; label: string; count: number }> = [
+    { id: 'all', label: '全部收藏', count: totals.seriesCount },
+    { id: 'watching', label: '追看中', count: totals.watchingCount },
+    { id: 'local', label: '本地磁盘', count: totals.localCount },
+    { id: 'cloud', label: '谷歌云盘', count: totals.cloudCount },
+    { id: 'completed', label: '已看完', count: totals.completedCount },
+  ];
+
   return (
     <div className="mx-auto max-w-[1440px] space-y-6 px-6 py-6 pb-14">
-      {/* Header Toolbar */}
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-[20px] font-bold tracking-tight text-white">本地番剧媒体库</h2>
-          <p className="mt-1 text-[12.5px] text-slate-400 tabular-nums">
-            {totals.seriesCount} 部番剧 · {totals.episodes} 集影片 · 已观看 {totals.watched} 集
-            <span className="ml-2 text-slate-500">· 右键卡片可刮削元数据、上传到谷歌云或移除</span>
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative flex-1 sm:w-56">
-            <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="搜索本地番剧..."
-              className="input-cinema h-9 w-full rounded-xl pr-3 pl-8 text-[12.5px]"
-            />
+      {/* Compact Stats + Filter Tabs + Toolbar */}
+      <section className="space-y-3.5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400 tabular-nums">
+            <span className="rounded-lg border border-white/[0.08] bg-[#12151C] px-2.5 py-1 font-medium text-slate-200">
+              {totals.seriesCount} 部番剧 · {totals.episodes} 集
+            </span>
+            <span className="rounded-lg border border-white/[0.07] bg-white/[0.04] px-2.5 py-1 text-slate-300">
+              已观看 {totals.watched} 集
+            </span>
+            <span className="hidden text-[12px] text-slate-500 sm:inline">
+              右键任意海报可刮削、转存云盘或移除
+            </span>
           </div>
 
-          {hiddenCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative flex-1 sm:w-56">
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="筛选媒体库番剧..."
+                className="input-cinema h-9 w-full rounded-xl pr-3 pl-8 text-[12.5px]"
+              />
+            </div>
+
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void onRestoreHidden()}
+                className="btn-ghost-dark inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12.5px] font-medium"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-slate-300" />
+                恢复已移除 ({hiddenCount})
+              </button>
+            )}
+
+            {seriesList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleScrapeAll()}
+                disabled={scrapingAll || scanning}
+                className="btn-ghost-dark inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border-[#FF7A2F]/35 bg-[#FF7A2F]/12 px-3.5 text-[12.5px] font-medium text-[#FF9E4F] hover:bg-[#FF7A2F]/22 disabled:opacity-60"
+              >
+                {scrapingAll ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {scrapingAll
+                  ? '正在刮削...'
+                  : totals.unscraped > 0
+                    ? `一键刮削 (${totals.unscraped})`
+                    : '一键刮削'}
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => void onRestoreHidden()}
-              className="btn-ghost-dark inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12.5px] font-medium"
+              onClick={onScan}
+              disabled={scanning}
+              className="btn-mikan inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-4 text-[12.5px]"
             >
-              <RotateCcw className="h-3.5 w-3.5 text-slate-300" />
-              恢复已移除 ({hiddenCount})
+              <RefreshCw className={`h-3.5 w-3.5 ${scanning ? 'animate-spin' : ''}`} />
+              {scanning ? '正在扫描...' : '扫描媒体库'}
             </button>
-          )}
-
-          {seriesList.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void handleScrapeAll()}
-              disabled={scrapingAll || scanning}
-              className="btn-ghost-dark inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border-[#FF7A2F]/35 bg-[#FF7A2F]/12 px-3.5 text-[12.5px] font-medium text-[#FF9E4F] hover:bg-[#FF7A2F]/22 disabled:opacity-60"
-            >
-              {scrapingAll ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {scrapingAll
-                ? '正在刮削...'
-                : totals.unscraped > 0
-                  ? `一键刮削 (${totals.unscraped})`
-                  : '一键刮削'}
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onScan}
-            disabled={scanning}
-            className="btn-mikan inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-4 text-[12.5px]"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${scanning ? 'animate-spin' : ''}`} />
-            {scanning ? '正在扫描...' : '扫描媒体库'}
-          </button>
+          </div>
         </div>
+
+        {/* Storage & Progress Filter Tabs */}
+        {seriesList.length > 0 && (
+          <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-0.5">
+            {filterTabs.map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition tabular-nums ${
+                    active
+                      ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11] shadow-[0_4px_14px_rgba(255,122,47,0.32)]'
+                      : 'border border-white/[0.08] bg-[#12151C] text-slate-300 hover:border-white/[0.16] hover:text-white'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className={`text-[11px] ${active ? 'opacity-80' : 'text-slate-500'}`}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </section>
+
+      {/* Continue Watching Horizontal Strip */}
+      {continueWatchingItems.length > 0 && !filter.trim() && (activeTab === 'all' || activeTab === 'watching') && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 text-[13.5px] font-semibold text-white">
+            <Play className="h-3.5 w-3.5 fill-[#FF7A2F] text-[#FF7A2F]" />
+            <span>继续观看</span>
+            <span className="text-[11.5px] font-normal text-slate-500 tabular-nums">
+              ({continueWatchingItems.length})
+            </span>
+          </div>
+          <div className="no-scrollbar flex gap-3.5 overflow-x-auto pb-1">
+            {continueWatchingItems.map(({ series, nextEpisode }) => {
+              const pct =
+                series.totalEpisodes > 0
+                  ? Math.min(100, Math.round((series.watchedCount / series.totalEpisodes) * 100))
+                  : 0;
+              const isPlaying = playingPath === nextEpisode.filePath;
+              return (
+                <div
+                  key={series.seriesId}
+                  className="card-interactive flex w-[300px] shrink-0 items-center gap-3.5 rounded-2xl p-3"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenSeries(series)}
+                    className="cinema-dark-surface relative h-[84px] w-[63px] shrink-0 overflow-hidden rounded-xl border border-white/[0.12]"
+                  >
+                    <PosterImage
+                      url={series.coverUrl}
+                      title={series.title}
+                      compactFallback
+                      className="h-full w-full"
+                    />
+                  </button>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenSeries(series)}
+                      className="line-clamp-1 text-left text-[13px] font-semibold text-white hover:text-[#FF9E4F]"
+                    >
+                      {series.title}
+                    </button>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
+                      <span>下一集 {formatEpisodeLabel(nextEpisode.episodeNumber)}</span>
+                      <span>
+                        {series.watchedCount}/{series.totalEpisodes}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.1]">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#FF7A2F] to-[#FF9E4F]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handlePlayContinue(nextEpisode)}
+                      disabled={isPlaying}
+                      className="btn-mikan inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px]"
+                    >
+                      {isPlaying ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3 fill-current" />
+                      )}
+                      {isPlaying ? '启动中...' : '继续播放'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Series Poster Grid or Empty State */}
       {scanning && seriesList.length === 0 ? (
@@ -262,12 +451,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className="skeleton-shimmer aspect-[3/4] rounded-[14px] border border-white/[0.05]"
+              className="skeleton-shimmer aspect-[3/4] rounded-[15px] border border-white/[0.05]"
             />
           ))}
         </div>
       ) : seriesList.length === 0 ? (
-        <div className="card-elevated flex flex-col items-center justify-center rounded-2xl py-20 px-6 text-center">
+        <div className="card-elevated flex flex-col items-center justify-center rounded-2xl px-6 py-20 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] text-[#FF7A2F]">
             <FolderSearch className="h-7 w-7" />
           </div>
@@ -298,7 +487,9 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
       ) : filtered.length === 0 ? (
         <div className="card-elevated flex flex-col items-center justify-center rounded-2xl py-16 text-center">
           <Film className="h-8 w-8 text-slate-600" />
-          <p className="mt-3 text-[14px] text-slate-300">未找到匹配“{filter}”的本地番剧</p>
+          <p className="mt-3 text-[14px] text-slate-300">
+            {filter.trim() ? `未找到匹配“${filter}”的番剧` : '当前分类下暂无番剧'}
+          </p>
         </div>
       ) : (
         <section className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -309,6 +500,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                 : 0;
             const allWatched =
               series.totalEpisodes > 0 && series.watchedCount >= series.totalEpisodes;
+            const unwatchedCount = Math.max(0, series.totalEpisodes - series.watchedCount);
 
             return (
               <button
@@ -319,7 +511,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   e.preventDefault();
                   setContextState({ x: e.clientX, y: e.clientY, series });
                 }}
-                className="poster-card group aspect-[3/4] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F]"
+                className="poster-card cinema-dark-surface group aspect-[3/4] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F]"
               >
                 <PosterImage
                   url={series.coverUrl}
@@ -336,12 +528,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       已看完
                     </span>
                   ) : series.rating ? (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/30 bg-[#0B0D11]/80 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-300 backdrop-blur-md tabular-nums">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/35 bg-[#0B0D11]/82 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-300 backdrop-blur-md tabular-nums">
                       <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
                       {series.rating.toFixed(1)}
                     </span>
                   ) : !series.scrapedAt && !series.coverUrl ? (
-                    <span className="rounded-md border border-white/[0.1] bg-[#0B0D11]/75 px-2 py-0.5 text-[10px] font-medium text-slate-400 backdrop-blur-md">
+                    <span className="rounded-md border border-white/[0.12] bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur-md">
                       未刮削
                     </span>
                   ) : (
@@ -351,16 +543,25 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                     {series.isCloud && (
                       <span
                         title={`谷歌云盘目录：${series.folderPath}`}
-                        className="inline-flex items-center gap-1 rounded-md border border-sky-400/35 bg-[#0B0D11]/85 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 backdrop-blur-md"
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-400/40 bg-[#0B0D11]/86 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 backdrop-blur-md"
                       >
                         <Cloud className="h-2.5 w-2.5" />
                         云盘
                       </span>
                     )}
-                    <span className="tabular-nums rounded-md border border-white/[0.1] bg-[#0B0D11]/80 px-2 py-0.5 text-[10.5px] font-semibold text-slate-200 backdrop-blur-md">
-                      {series.totalEpisodes} 集
+                    <span className="tabular-nums rounded-md border border-white/[0.12] bg-[#0B0D11]/82 px-2 py-0.5 text-[10.5px] font-semibold text-slate-100 backdrop-blur-md">
+                      {unwatchedCount > 0 && series.watchedCount > 0
+                        ? `剩 ${unwatchedCount} 集`
+                        : `${series.totalEpisodes} 集`}
                     </span>
                   </div>
+                </div>
+
+                {/* Infuse-style Hover Play Overlay */}
+                <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:opacity-100">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-[#0B0D11]/80 text-white shadow-xl backdrop-blur-md">
+                    <Play className="ml-0.5 h-5 w-5 fill-[#FF9E4F] text-[#FF9E4F]" />
+                  </span>
                 </div>
 
                 {/* Bottom Caption & Progress Bar */}
@@ -370,13 +571,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   </h3>
 
                   <div className="mt-2 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300/80 tabular-nums">
                       <span>观看进度</span>
-                      <span className={allWatched ? 'text-[#22C55E] font-medium' : 'text-slate-300'}>
+                      <span className={allWatched ? 'font-medium text-[#22C55E]' : 'text-slate-200'}>
                         {series.watchedCount} / {series.totalEpisodes} 集
                       </span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.12]">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.15]">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
                           allWatched

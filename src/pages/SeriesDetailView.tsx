@@ -230,7 +230,7 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
   return (
     <div className="pb-14">
       {/* Ambient Series Header */}
-      <div className="relative overflow-hidden border-b border-white/[0.06]">
+      <div className="cinema-dark-surface relative overflow-hidden border-b border-white/[0.06]">
         <div className="pointer-events-none absolute inset-0">
           {bgImg.src && (
             <img

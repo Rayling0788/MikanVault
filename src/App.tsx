@@ -15,6 +15,7 @@ import { api, isElectronRuntime } from '@/lib/api';
 import { ToastProvider, useToast } from '@/hooks/useToast';
 import { useQbStatus } from '@/hooks/useQbStatus';
 import { useCloudStatus } from '@/hooks/useCloudStatus';
+import { useTheme } from '@/hooks/useTheme';
 import { Sidebar, type NavSection } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
 import {
@@ -61,6 +62,7 @@ const SECTION_META: Record<NavSection, { title: string; subtitle: string }> = {
 
 const MikanVaultShell: React.FC = () => {
   const { pushToast } = useToast();
+  const theme = useTheme();
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
   const [activeSection, setActiveSection] = useState<NavSection>('discover');
@@ -329,6 +331,13 @@ const MikanVaultShell: React.FC = () => {
     };
   }, [overlay, activeSection, activeSeries, selectedSeason]);
 
+  const viewKey =
+    overlay.kind === 'bangumi'
+      ? `bangumi:${overlay.bangumiId}`
+      : overlay.kind === 'series'
+        ? `series:${overlay.seriesId}`
+        : `section:${activeSection}`;
+
   return (
     <div className="app-canvas-glow flex h-screen w-screen overflow-hidden text-slate-100">
       {/* Left Navigation Rail */}
@@ -338,6 +347,8 @@ const MikanVaultShell: React.FC = () => {
         qbStatus={qb.status}
         activeDownloads={qb.activeCount}
         activeCloudJobs={cloud.activeCount + cloud.queuedCount}
+        cloudStatus={cloud.status}
+        cloudSpeed={cloud.totalSpeed}
         activeSubscriptions={subscriptions.filter((s) => s.enabled).length}
         totalDlSpeed={qb.totalDlSpeed}
         launchingQb={qb.launching}
@@ -355,10 +366,14 @@ const MikanVaultShell: React.FC = () => {
           onSearchChange={setSearchInput}
           onSearchSubmit={(q) => void handleSearchSubmit(q)}
           onClearSearch={handleClearSearch}
+          themeMode={theme.mode}
+          resolvedTheme={theme.resolvedTheme}
+          onCycleTheme={theme.cycleMode}
           isPreviewMode={!isElectronRuntime}
         />
 
         <main ref={mainScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div key={viewKey} className="animate-page-enter min-h-full">
           {overlay.kind === 'bangumi' ? (
             <BangumiDetailView
               bangumiId={overlay.bangumiId}
@@ -611,8 +626,12 @@ const MikanVaultShell: React.FC = () => {
               onRefreshQb={qb.refresh}
               onLaunchQb={handleLaunchQbWithToast}
               launchingQb={qb.launching}
+              themeMode={theme.mode}
+              resolvedTheme={theme.resolvedTheme}
+              onChangeThemeMode={theme.setMode}
             />
           )}
+          </div>
         </main>
       </div>
 
