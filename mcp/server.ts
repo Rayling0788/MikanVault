@@ -91,7 +91,7 @@ function matchSeriesFuzzy(
 export function createMikanVaultMcpServer() {
   return createMcpServer({
     name: 'mikanvault-mcp',
-    version: '0.2.1',
+    version: '0.2.2',
     instructions:
       'Use these tools to search anime on Mikan Project, manage qBittorrent downloads and RSS auto-subscriptions, organize/scrape the local anime library, and upload or offload anime to Google Drive.',
     tools: [
