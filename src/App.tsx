@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUp } from 'lucide-react';
 import type {
   AppSettings,
   LibrarySeries,
@@ -68,6 +69,7 @@ const MikanVaultShell: React.FC = () => {
   const [activeSection, setActiveSection] = useState<NavSection>('discover');
   const [overlay, setOverlay] = useState<OverlayView>({ kind: 'none' });
   const [customRssUrl, setCustomRssUrl] = useState<string | undefined>(undefined);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   // Settings
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -270,7 +272,7 @@ const MikanVaultShell: React.FC = () => {
     setSearchError(null);
   };
 
-  const handleGoBack = () => {
+  const handleGoBack = useCallback(() => {
     if (overlay.kind === 'bangumi' && overlay.returnToSearch) {
       setActiveSection('search');
       setOverlay({ kind: 'none' });
@@ -278,7 +280,62 @@ const MikanVaultShell: React.FC = () => {
       setOverlay({ kind: 'none' });
     }
     scrollTop();
-  };
+  }, [overlay]);
+
+  useEffect(() => {
+    const NAV_ORDER: NavSection[] = [
+      'discover',
+      'search',
+      'latest',
+      'subscriptions',
+      'downloads',
+      'cloud',
+      'library',
+      'settings',
+    ];
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isEditing =
+        Boolean(target) &&
+        (target!.tagName === 'INPUT' ||
+          target!.tagName === 'TEXTAREA' ||
+          target!.tagName === 'SELECT' ||
+          target!.isContentEditable);
+      if (isEditing) return;
+
+      if (e.altKey && e.key === 'ArrowLeft' && overlay.kind !== 'none') {
+        e.preventDefault();
+        handleGoBack();
+        return;
+      }
+
+      if (
+        e.key === 'Escape' &&
+        overlay.kind !== 'none' &&
+        downloadModal.targets.length === 0 &&
+        !subscribeTarget
+      ) {
+        e.preventDefault();
+        handleGoBack();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        const num = Number(e.key);
+        if (num >= 1 && num <= 8) {
+          e.preventDefault();
+          const targetSection = NAV_ORDER[num - 1];
+          setActiveSection(targetSection);
+          setOverlay({ kind: 'none' });
+          scrollTop();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [overlay.kind, downloadModal.targets.length, subscribeTarget, handleGoBack]);
 
   const handleLaunchQbWithToast = async () => {
     const res = await qb.launchQb();
@@ -372,7 +429,11 @@ const MikanVaultShell: React.FC = () => {
           isPreviewMode={!isElectronRuntime}
         />
 
-        <main ref={mainScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <main
+          ref={mainScrollRef}
+          onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 420)}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
           <div key={viewKey} className="animate-page-enter min-h-full">
           {overlay.kind === 'bangumi' ? (
             <BangumiDetailView
@@ -633,6 +694,18 @@ const MikanVaultShell: React.FC = () => {
           )}
           </div>
         </main>
+
+        {showScrollTop && (
+          <button
+            type="button"
+            onClick={() => mainScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+            title="回到顶部"
+            aria-label="回到顶部"
+            className="glass-panel fixed right-6 bottom-6 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.14] text-slate-200 shadow-[0_12px_28px_rgba(0,0,0,0.45)] transition hover:-translate-y-0.5 hover:border-[#FF7A2F]/55 hover:text-[#FF9E4F]"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Global Download Confirmation Modal (Single & Batch) */}

@@ -70,6 +70,7 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
   const [filter, setFilter] = useState<TorrentFilter>('all');
   const [search, setSearch] = useState('');
   const [busyHash, setBusyHash] = useState<string | null>(null);
+  const [batchControlling, setBatchControlling] = useState<'pause' | 'resume' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QbTorrentItem | null>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudDriveStatus | null>(null);
   const [cloudJobs, setCloudJobs] = useState<CloudTransferJob[]>([]);
@@ -135,6 +136,44 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
     const res = await api.libraryOpenFolder(target);
     if (!res.ok) {
       pushToast({ kind: 'error', title: '无法打开目录', description: res.error || target });
+    }
+  };
+
+  const pausableTorrents = useMemo(
+    () =>
+      torrents.filter(
+        (t) => !getTorrentStateMeta(t.state).isPaused && t.progress < 0.999,
+      ),
+    [torrents],
+  );
+
+  const resumableTorrents = useMemo(
+    () =>
+      torrents.filter(
+        (t) => getTorrentStateMeta(t.state).isPaused && t.progress < 0.999,
+      ),
+    [torrents],
+  );
+
+  const handleBatchControl = async (action: 'pause' | 'resume') => {
+    const targets = action === 'pause' ? pausableTorrents : resumableTorrents;
+    if (targets.length === 0 || batchControlling) return;
+    setBatchControlling(action);
+    try {
+      const results = await Promise.all(
+        targets.map((t) => api.qbControlTorrent(t.hash, action)),
+      );
+      const okCount = results.filter((r) => r.ok).length;
+      pushToast({
+        kind: okCount > 0 ? 'success' : 'error',
+        title:
+          action === 'pause'
+            ? `已暂停 ${okCount} 个下载任务`
+            : `已恢复 ${okCount} 个下载任务`,
+      });
+      await onRefresh();
+    } finally {
+      setBatchControlling(null);
     }
   };
 
@@ -246,7 +285,9 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>活跃下载</span>
-            <Download className="h-4 w-4 text-[#FF7A2F]" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#FF7A2F]/14 text-[#FF7A2F]">
+              <Download className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="tabular-nums text-[24px] font-bold text-white">{activeCount}</span>
@@ -257,7 +298,9 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>总下载速度</span>
-            <ArrowDown className="h-4 w-4 text-[#38BDF8]" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#38BDF8]/14 text-[#38BDF8]">
+              <ArrowDown className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 tabular-nums text-[24px] font-bold text-[#38BDF8]">
             {formatSpeed(totalDlSpeed)}
@@ -267,7 +310,9 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>总上传速度</span>
-            <ArrowUp className="h-4 w-4 text-slate-400" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.06] text-slate-400">
+              <ArrowUp className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 tabular-nums text-[24px] font-bold text-slate-200">
             {formatSpeed(totalUlSpeed)}
@@ -277,7 +322,9 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>已完成任务</span>
-            <CheckCircle2 className="h-4 w-4 text-[#22C55E]" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#22C55E]/14 text-[#22C55E]">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 tabular-nums text-[24px] font-bold text-[#22C55E]">
             {completedCount}
@@ -344,14 +391,14 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
                 onClick={() => setFilter(tab.id)}
                 className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
                   active
-                    ? 'bg-[#FF7A2F] text-[#0B0D11] font-semibold'
+                    ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
                     : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:bg-[#181C26] hover:text-white'
                 }`}
               >
                 <span>{tab.label}</span>
                 <span
                   className={`tabular-nums text-[11px] ${
-                    active ? 'text-[#0B0D11]/75' : 'text-slate-500'
+                    active ? 'opacity-80' : 'text-slate-500'
                   }`}
                 >
                   {tab.count}
@@ -361,7 +408,37 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
           })}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {pausableTorrents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleBatchControl('pause')}
+              disabled={batchControlling !== null}
+              className="btn-ghost-dark inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium"
+            >
+              {batchControlling === 'pause' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Pause className="h-3.5 w-3.5 text-amber-300" />
+              )}
+              全部暂停
+            </button>
+          )}
+          {resumableTorrents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleBatchControl('resume')}
+              disabled={batchControlling !== null}
+              className="btn-ghost-dark inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-medium"
+            >
+              {batchControlling === 'resume' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5 text-[#22C55E]" />
+              )}
+              全部恢复
+            </button>
+          )}
           <div className="relative flex-1 sm:w-64">
             <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
             <input
@@ -424,7 +501,7 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
                   url={t.coverUrl}
                   title={t.bangumiTitle || t.name}
                   compactFallback
-                  className="hidden h-[76px] w-[57px] shrink-0 rounded-xl border border-white/[0.08] sm:block"
+                  className="cinema-dark-surface hidden h-[76px] w-[57px] shrink-0 rounded-xl border border-white/[0.08] sm:block"
                 />
 
                 {/* Center Info & Progress */}

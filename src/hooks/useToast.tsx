@@ -39,36 +39,53 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {children}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed right-5 bottom-5 z-50 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-2.5"
+        className="pointer-events-none fixed right-5 bottom-5 z-50 flex w-[348px] max-w-[calc(100vw-2rem)] flex-col gap-2.5"
       >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="animate-toast-in pointer-events-auto glass-panel flex items-start gap-3 rounded-xl border border-white/[0.1] px-4 py-3 shadow-2xl shadow-black/60"
-          >
-            <div className="mt-0.5 shrink-0">
-              {t.kind === 'success' && <CheckCircle2 className="h-4.5 w-4.5 text-[#22C55E]" />}
-              {t.kind === 'error' && <AlertTriangle className="h-4.5 w-4.5 text-[#FF7A2F]" />}
-              {t.kind === 'info' && <Info className="h-4.5 w-4.5 text-[#38BDF8]" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-semibold text-slate-100 leading-snug">{t.title}</div>
-              {t.description && (
-                <div className="mt-0.5 text-[12px] text-slate-400 leading-relaxed break-words">
-                  {t.description}
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => dismiss(t.id)}
-              className="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/[0.06] hover:text-slate-200"
-              aria-label="关闭通知"
+        {toasts.map((t) => {
+          const accentBar =
+            t.kind === 'success'
+              ? 'bg-[#22C55E]'
+              : t.kind === 'error'
+                ? 'bg-[#FF7A2F]'
+                : 'bg-[#38BDF8]';
+
+          return (
+            <div
+              key={t.id}
+              className="animate-toast-in pointer-events-auto glass-panel toast-card relative flex items-start gap-3 overflow-hidden rounded-xl border border-white/[0.11] py-3 pr-3.5 pl-4"
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ))}
+              {/* 3px Semantic Left Accent Strip */}
+              <span className={`absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full ${accentBar}`} />
+
+              <div className="mt-0.5 shrink-0">
+                {t.kind === 'success' && <CheckCircle2 className="h-4.5 w-4.5 text-[#22C55E]" />}
+                {t.kind === 'error' && <AlertTriangle className="h-4.5 w-4.5 text-[#FF7A2F]" />}
+                {t.kind === 'info' && <Info className="h-4.5 w-4.5 text-[#38BDF8]" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold leading-snug text-slate-100">{t.title}</div>
+                {t.description && (
+                  <div className="mt-0.5 break-words text-[12px] leading-relaxed text-slate-400">
+                    {t.description}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => dismiss(t.id)}
+                className="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/[0.06] hover:text-slate-200"
+                aria-label="关闭通知"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+
+              {/* Bottom 2px Auto-Dismiss Countdown Hairline */}
+              <span
+                className={`animate-toast-progress absolute right-0 bottom-0 left-0 h-[2px] opacity-65 ${accentBar}`}
+              />
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

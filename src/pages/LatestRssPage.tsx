@@ -9,8 +9,17 @@ import {
   Loader2,
   RotateCcw,
   CheckSquare,
+  Languages,
 } from 'lucide-react';
-import type { MikanBangumiDetail, MikanRelease } from '@shared/types';
+import type {
+  MikanBangumiDetail,
+  MikanRelease,
+  SubtitleLanguageFilter,
+} from '@shared/types';
+import {
+  countSubtitleLanguages,
+  matchesSubtitleLanguage,
+} from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
 import { ReleaseRow } from '@/components/ReleaseRow';
 import { BatchActionBar } from '@/components/BatchActionBar';
@@ -38,6 +47,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
+  const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [lastFetched, setLastFetched] = useState<number | null>(null);
 
   const loadFeed = async (targetRss?: string) => {
@@ -56,6 +66,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
 
   useEffect(() => {
     setActiveRssUrl(initialRssUrl);
+    setLanguageFilter('all');
     if (initialRssUrl) {
       setUrlInput(initialRssUrl);
     }
@@ -122,19 +133,36 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
   const handleResetDefault = () => {
     setUrlInput('');
     setActiveRssUrl(undefined);
+    setLanguageFilter('all');
     void loadFeed(undefined);
   };
 
+  const availableLanguages = useMemo(
+    () => countSubtitleLanguages(releases.map((r) => r.title)),
+    [releases],
+  );
+
+  const unclassifiedLanguageCount = useMemo(() => {
+    const classified = availableLanguages.reduce((sum, l) => sum + l.count, 0);
+    return Math.max(0, releases.length - classified);
+  }, [releases.length, availableLanguages]);
+
+  const showLanguageFilterBar =
+    availableLanguages.length >= 2 ||
+    (availableLanguages.length === 1 && unclassifiedLanguageCount > 0);
+
   const filteredReleases = useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    if (!q) return releases;
-    return releases.filter(
-      (r) =>
+    return releases.filter((r) => {
+      if (!matchesSubtitleLanguage(r.title, languageFilter)) return false;
+      if (!q) return true;
+      return (
         r.title.toLowerCase().includes(q) ||
         (r.subgroup && r.subgroup.toLowerCase().includes(q)) ||
         (r.bangumiTitle && r.bangumiTitle.toLowerCase().includes(q))
-    );
-  }, [releases, keyword]);
+      );
+    });
+  }, [releases, keyword, languageFilter]);
 
   const selection = useReleaseSelection(filteredReleases);
 
@@ -249,6 +277,44 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
           </button>
         </div>
       </section>
+
+      {/* Subtitle Language Filter Pills */}
+      {showLanguageFilterBar && (
+        <section className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/[0.06] bg-[#12151C]/55 px-3 py-2">
+          <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+            <Languages className="h-3.5 w-3.5 text-sky-400" />
+            字幕语言筛选：
+          </span>
+          <button
+            type="button"
+            onClick={() => setLanguageFilter('all')}
+            className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+              languageFilter === 'all'
+                ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+            }`}
+          >
+            全部语言 ({releases.length})
+          </button>
+          {availableLanguages.map((lang) => {
+            const active = languageFilter === lang.id;
+            return (
+              <button
+                key={lang.id}
+                type="button"
+                onClick={() => setLanguageFilter(lang.id)}
+                className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition tabular-nums ${
+                  active
+                    ? 'bg-sky-500 font-semibold text-[#0B0D11]'
+                    : 'border border-white/[0.07] bg-[#0B0D11]/60 text-slate-300 hover:text-white'
+                }`}
+              >
+                {lang.shortLabel} ({lang.count})
+              </button>
+            );
+          })}
+        </section>
+      )}
 
       {/* Release Feed List */}
       {loading && releases.length === 0 ? (

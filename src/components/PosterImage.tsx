@@ -80,7 +80,7 @@ export const PosterImage: React.FC<PosterImageProps> = ({
 
       {showFallback && (
         <div
-          className="relative flex h-full w-full flex-col justify-between p-3.5 select-none"
+          className="cinema-dark-surface relative flex h-full w-full flex-col justify-between p-3.5 select-none"
           style={{
             background: `linear-gradient(145deg, ${palette[0]} 0%, ${palette[1]} 100%)`,
           }}

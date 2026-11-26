@@ -16,6 +16,8 @@ import {
   BellRing,
   Cloud,
   CloudUpload,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import type { LibraryEpisode, LibrarySeries, SubscriptionItem } from '@shared/types';
 import { api } from '@/lib/api';
@@ -68,6 +70,23 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
     y: number;
     episode: LibraryEpisode;
   } | null>(null);
+  const [episodeFilter, setEpisodeFilter] = useState<'all' | 'unwatched' | 'watched'>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    try {
+      return localStorage.getItem('mikanvault_series_view_mode') === 'grid' ? 'grid' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+
+  const changeViewMode = (mode: 'list' | 'grid') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('mikanvault_series_view_mode', mode);
+    } catch {
+      // Ignore storage error
+    }
+  };
 
   const bgImg = useProxiedImage(series.coverUrl);
 
@@ -83,6 +102,18 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
   const nextEpisode = useMemo(() => {
     return sortedEpisodes.find((e) => !e.watched) || sortedEpisodes[0] || null;
   }, [sortedEpisodes]);
+
+  const watchedCount = useMemo(
+    () => sortedEpisodes.filter((e) => e.watched).length,
+    [sortedEpisodes],
+  );
+  const unwatchedCount = Math.max(0, sortedEpisodes.length - watchedCount);
+
+  const filteredEpisodes = useMemo(() => {
+    if (episodeFilter === 'unwatched') return sortedEpisodes.filter((e) => !e.watched);
+    if (episodeFilter === 'watched') return sortedEpisodes.filter((e) => e.watched);
+    return sortedEpisodes;
+  }, [sortedEpisodes, episodeFilter]);
 
   const maxEpisodeNumber = useMemo(() => {
     const parsedMax = sortedEpisodes.reduce(
@@ -430,112 +461,284 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Episode List */}
-      <div className="mx-auto max-w-[1320px] space-y-3 px-6 pt-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-white">剧集列表</h2>
-          <span className="text-[12px] text-slate-500">
-            点击「本地播放」调用播放器 · 右键单集可标记或移除
-          </span>
-        </div>
+      {/* Episode List / Grid */}
+      <div className="mx-auto max-w-[1320px] space-y-4 px-6 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="mr-1 text-[15px] font-semibold text-white">剧集列表</h2>
+            {(
+              [
+                { id: 'all', label: '全部', count: sortedEpisodes.length },
+                { id: 'unwatched', label: '未看', count: unwatchedCount },
+                { id: 'watched', label: '已看', count: watchedCount },
+              ] as const
+            ).map((tab) => {
+              const active = episodeFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setEpisodeFilter(tab.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition tabular-nums ${
+                    active
+                      ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
+                      : 'border border-white/[0.08] bg-[#12151C] text-slate-300 hover:border-white/[0.16] hover:text-white'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className={`text-[11px] ${active ? 'opacity-80' : 'text-slate-500'}`}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="space-y-2.5">
-          {sortedEpisodes.map((ep) => {
-            const isPlaying = playingPath === ep.filePath;
-            const isToggling = togglingPath === ep.filePath;
-
-            return (
-              <div
-                key={ep.id}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setEpisodeMenu({ x: e.clientX, y: e.clientY, episode: ep });
-                }}
-                className={`group flex flex-col gap-3 rounded-xl border px-4 py-3.5 transition sm:flex-row sm:items-center sm:justify-between ${
-                  ep.watched
-                    ? 'border-white/[0.05] bg-[#12151C]/65 hover:border-white/[0.1] hover:bg-[#161A23]'
-                    : 'border-white/[0.075] bg-[#12151C] hover:border-white/[0.15] hover:bg-[#171C26]'
+          <div className="flex items-center gap-3">
+            <span className="hidden text-[12px] text-slate-500 md:inline">
+              点击「本地播放」调用播放器 · 右键单集可标记或移除
+            </span>
+            <div className="flex items-center rounded-xl border border-white/[0.08] bg-[#12151C] p-0.5">
+              <button
+                type="button"
+                onClick={() => changeViewMode('list')}
+                title="列表视图"
+                aria-label="列表视图"
+                className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium transition ${
+                  viewMode === 'list'
+                    ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <div className="flex min-w-0 flex-1 items-center gap-3.5">
-                  {/* Watched Toggle */}
-                  <button
-                    type="button"
-                    disabled={isToggling}
-                    onClick={() => void handleToggleWatched(ep)}
-                    className="shrink-0 rounded-full p-1 transition hover:bg-white/[0.06]"
-                    title={ep.watched ? '标记为未看' : '标记为已看'}
-                    aria-label={ep.watched ? '标记为未看' : '标记为已看'}
-                  >
-                    {ep.watched ? (
-                      <CheckCircle2 className="h-5 w-5 text-[#22C55E]" />
-                    ) : (
-                      <Circle className="h-5 w-5 text-slate-600 transition group-hover:text-slate-400" />
-                    )}
-                  </button>
+                <List className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">列表</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => changeViewMode('grid')}
+                title="网格视图"
+                aria-label="网格视图"
+                className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium transition ${
+                  viewMode === 'grid'
+                    ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">网格</span>
+              </button>
+            </div>
+          </div>
+        </div>
 
-                  {/* Episode Number Pill */}
-                  <div
-                    className={`tabular-nums flex h-10 w-16 shrink-0 items-center justify-center rounded-xl border text-[12px] font-bold tracking-wide ${
-                      ep.watched
-                        ? 'border-[#22C55E]/20 bg-[#22C55E]/10 text-emerald-300'
-                        : 'border-[#FF7A2F]/25 bg-[#FF7A2F]/12 text-[#FF9E4F]'
-                    }`}
-                  >
-                    {formatEpisodeLabel(ep.episodeNumber)}
+        {filteredEpisodes.length === 0 ? (
+          <div className="card-elevated rounded-2xl py-12 text-center text-[13px] text-slate-400">
+            当前筛选下暂无剧集
+          </div>
+        ) : viewMode === 'list' ? (
+          <div className="space-y-2.5">
+            {filteredEpisodes.map((ep) => {
+              const isPlaying = playingPath === ep.filePath;
+              const isToggling = togglingPath === ep.filePath;
+              const isNext = Boolean(nextEpisode && ep.id === nextEpisode.id && !ep.watched);
+
+              return (
+                <div
+                  key={ep.id}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setEpisodeMenu({ x: e.clientX, y: e.clientY, episode: ep });
+                  }}
+                  className={`group flex flex-col gap-3 rounded-xl border px-4 py-3.5 transition sm:flex-row sm:items-center sm:justify-between ${
+                    isNext
+                      ? 'border-[#FF7A2F]/45 bg-[#FF7A2F]/[0.06] hover:border-[#FF7A2F]/65'
+                      : ep.watched
+                        ? 'border-white/[0.05] bg-[#12151C]/65 hover:border-white/[0.1] hover:bg-[#161A23]'
+                        : 'border-white/[0.075] bg-[#12151C] hover:border-white/[0.15] hover:bg-[#171C26]'
+                  }`}
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3.5">
+                    {/* Watched Toggle */}
+                    <button
+                      type="button"
+                      disabled={isToggling}
+                      onClick={() => void handleToggleWatched(ep)}
+                      className="shrink-0 rounded-full p-1 transition hover:bg-white/[0.06]"
+                      title={ep.watched ? '标记为未看' : '标记为已看'}
+                      aria-label={ep.watched ? '标记为未看' : '标记为已看'}
+                    >
+                      {ep.watched ? (
+                        <CheckCircle2 className="h-5 w-5 text-[#22C55E]" />
+                      ) : (
+                        <Circle className="h-5 w-5 text-slate-600 transition group-hover:text-slate-400" />
+                      )}
+                    </button>
+
+                    {/* Episode Number Pill */}
+                    <div
+                      className={`tabular-nums flex h-10 w-16 shrink-0 items-center justify-center rounded-xl border text-[12px] font-bold tracking-wide ${
+                        ep.watched
+                          ? 'border-[#22C55E]/20 bg-[#22C55E]/10 text-emerald-300'
+                          : 'border-[#FF7A2F]/25 bg-[#FF7A2F]/12 text-[#FF9E4F]'
+                      }`}
+                    >
+                      {formatEpisodeLabel(ep.episodeNumber)}
+                    </div>
+
+                    {/* Episode Details */}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`truncate text-[13.5px] font-semibold ${
+                            ep.watched ? 'text-slate-300' : 'text-white'
+                          }`}
+                        >
+                          {ep.title || ep.fileName}
+                        </div>
+                        {isNext && (
+                          <span className="shrink-0 rounded-md border border-[#FF7A2F]/35 bg-[#FF7A2F]/18 px-1.5 py-0.5 text-[10px] font-semibold text-[#FF9E4F]">
+                            下一集
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-400">
+                        <span className="max-w-[340px] truncate font-mono text-[11px] text-slate-500">
+                          {ep.fileName}
+                        </span>
+                        {ep.resolution && <TagBadge label={ep.resolution} />}
+                        {ep.tags.slice(0, 3).map((tag) => (
+                          <TagBadge key={tag} label={tag} />
+                        ))}
+                        <span className="inline-flex items-center gap-1 tabular-nums text-slate-400">
+                          <HardDrive className="h-3 w-3 text-slate-500" />
+                          {formatBytes(ep.sizeBytes)}
+                        </span>
+                        {ep.lastPlayedAt && (
+                          <span className="inline-flex items-center gap-1 tabular-nums text-slate-500">
+                            <Clock className="h-3 w-3" />
+                            上次观看 {formatRelativeDate(ep.lastPlayedAt)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Episode Details */}
-                  <div className="min-w-0 flex-1 space-y-1">
+                  {/* Play Button */}
+                  <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
+                    <button
+                      type="button"
+                      onClick={() => void handlePlay(ep)}
+                      disabled={isPlaying}
+                      className="btn-mikan inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-[12.5px]"
+                    >
+                      {isPlaying ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                      )}
+                      本地播放
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredEpisodes.map((ep) => {
+              const isPlaying = playingPath === ep.filePath;
+              const isToggling = togglingPath === ep.filePath;
+              const isNext = Boolean(nextEpisode && ep.id === nextEpisode.id && !ep.watched);
+
+              return (
+                <div
+                  key={ep.id}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setEpisodeMenu({ x: e.clientX, y: e.clientY, episode: ep });
+                  }}
+                  className={`group flex flex-col justify-between gap-3 rounded-2xl border p-4 transition ${
+                    isNext
+                      ? 'border-[#FF7A2F]/45 bg-[#FF7A2F]/[0.06] hover:border-[#FF7A2F]/65'
+                      : ep.watched
+                        ? 'border-white/[0.06] bg-[#12151C]/70 hover:border-white/[0.12]'
+                        : 'border-white/[0.08] bg-[#12151C] hover:border-white/[0.16]'
+                  }`}
+                >
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`tabular-nums inline-flex h-7 items-center justify-center rounded-lg border px-2.5 text-[11.5px] font-bold ${
+                            ep.watched
+                              ? 'border-[#22C55E]/25 bg-[#22C55E]/12 text-emerald-300'
+                              : 'border-[#FF7A2F]/30 bg-[#FF7A2F]/14 text-[#FF9E4F]'
+                          }`}
+                        >
+                          {formatEpisodeLabel(ep.episodeNumber)}
+                        </div>
+                        {isNext && (
+                          <span className="rounded-md border border-[#FF7A2F]/35 bg-[#FF7A2F]/18 px-1.5 py-0.5 text-[10px] font-semibold text-[#FF9E4F]">
+                            下一集
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isToggling}
+                        onClick={() => void handleToggleWatched(ep)}
+                        className="rounded-full p-1 transition hover:bg-white/[0.06]"
+                        title={ep.watched ? '标记为未看' : '标记为已看'}
+                        aria-label={ep.watched ? '标记为未看' : '标记为已看'}
+                      >
+                        {ep.watched ? (
+                          <CheckCircle2 className="h-4.5 w-4.5 text-[#22C55E]" />
+                        ) : (
+                          <Circle className="h-4.5 w-4.5 text-slate-600 transition group-hover:text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+
                     <div
-                      className={`truncate text-[13.5px] font-semibold ${
+                      title={ep.fileName}
+                      className={`line-clamp-2 text-[13px] font-semibold leading-snug ${
                         ep.watched ? 'text-slate-300' : 'text-white'
                       }`}
                     >
                       {ep.title || ep.fileName}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-400">
-                      <span className="max-w-[340px] truncate font-mono text-[11px] text-slate-500">
-                        {ep.fileName}
-                      </span>
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                       {ep.resolution && <TagBadge label={ep.resolution} />}
-                      {ep.tags.slice(0, 3).map((tag) => (
+                      {ep.tags.slice(0, 2).map((tag) => (
                         <TagBadge key={tag} label={tag} />
                       ))}
-                      <span className="inline-flex items-center gap-1 tabular-nums text-slate-400">
+                      <span className="ml-auto inline-flex items-center gap-1 tabular-nums text-slate-400">
                         <HardDrive className="h-3 w-3 text-slate-500" />
                         {formatBytes(ep.sizeBytes)}
                       </span>
-                      {ep.lastPlayedAt && (
-                        <span className="inline-flex items-center gap-1 tabular-nums text-slate-500">
-                          <Clock className="h-3 w-3" />
-                          上次观看 {formatRelativeDate(ep.lastPlayedAt)}
-                        </span>
-                      )}
                     </div>
                   </div>
-                </div>
 
-                {/* Play Button */}
-                <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
                   <button
                     type="button"
                     onClick={() => void handlePlay(ep)}
                     disabled={isPlaying}
-                    className="btn-mikan inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-[12.5px]"
+                    className="btn-mikan flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl text-[12px]"
                   >
                     {isPlaying ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <Play className="h-3.5 w-3.5 fill-current" />
                     )}
-                    本地播放
+                    {isPlaying ? '启动中...' : '本地播放'}
                   </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {episodeMenu && (
