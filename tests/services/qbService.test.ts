@@ -412,4 +412,57 @@ describe('qbService & configStore', () => {
     const meta = getMetadata();
     expect(Object.keys(meta.downloadsMap).length).toBeLessThanOrEqual(400);
   });
+
+  it('extracts 32-char Base32 magnet infohashes cleanly and enriches getTorrents via single store snapshot', async () => {
+    const base32Hash = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const mockQbFetch: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/v2/auth/login')) {
+        return new Response('Ok.', {
+          status: 200,
+          headers: { 'set-cookie': 'SID=sid-b32; Path=/' },
+        });
+      }
+      if (url.endsWith('/api/v2/torrents/add')) {
+        return new Response('Ok.', { status: 200 });
+      }
+      if (url.includes('/api/v2/torrents/info')) {
+        return new Response(
+          JSON.stringify([
+            {
+              hash: base32Hash.toLowerCase(),
+              name: '[Sub] Base32 Anime - 01.mkv',
+              state: 'downloading',
+              progress: 0.5,
+              size: 500_000_000,
+              dlspeed: 1_000_000,
+              upspeed: 0,
+              eta: 100,
+              save_path: path.join(downloadDir, 'Base32 Anime'),
+              category: 'MikanVault',
+              added_on: 1764000001,
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('', { status: 404 });
+    });
+
+    const addRes = await addDownload(
+      {
+        title: '[Sub] Base32 Anime - 01',
+        bangumiId: '4999',
+        bangumiTitle: 'Base32 Anime',
+        magnetUrl: `magnet:?xt=urn:btih:${base32Hash}`,
+      },
+      mockQbFetch,
+    );
+    expect(addRes.ok).toBe(true);
+    expect(addRes.hash).toBe(base32Hash.toLowerCase());
+
+    const torrents = await getTorrents(mockQbFetch);
+    expect(torrents).toHaveLength(1);
+    expect(torrents[0].bangumiId).toBe('4999');
+    expect(torrents[0].bangumiTitle).toBe('Base32 Anime');
+  });
 });

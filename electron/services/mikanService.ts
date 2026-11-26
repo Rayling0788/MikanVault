@@ -993,6 +993,10 @@ export async function proxyImage(url: string, fetchFn?: FetchLike): Promise<stri
         (res.headers.get('content-type') || '').split(';')[0].trim() ||
         guessMimeFromExt(path.extname(parsed.pathname));
 
+      if (buf.byteLength === 0 || contentType.toLowerCase().includes('text/html')) {
+        return '';
+      }
+
       try {
         await Promise.all([
           fsp.writeFile(dataPath, buf),

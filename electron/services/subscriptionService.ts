@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type {
   ActionResult,
@@ -76,33 +77,33 @@ function defaultNotify(title: string, body: string): void {
   }
 }
 
-function collectLocalEpisodeNumbers(dirPath: string): {
+async function collectLocalEpisodeNumbers(dirPath: string): Promise<{
   episodeNumbers: Set<number>;
   maxEpisodeNumber: number;
   episodeCount: number;
   detectedSubgroup?: string;
-} {
+}> {
   const episodeNumbers = new Set<number>();
   let maxEpisodeNumber = 0;
   let episodeCount = 0;
   let detectedSubgroup: string | undefined;
 
-  if (!dirPath || !fs.existsSync(dirPath)) {
+  if (!dirPath) {
     return { episodeNumbers, maxEpisodeNumber, episodeCount };
   }
 
-  const walk = (current: string, depth: number) => {
+  const walk = async (current: string, depth: number): Promise<void> => {
     if (depth > 3) return;
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = await fsp.readdir(current, { withFileTypes: true });
     } catch {
       return;
     }
     for (const entry of entries) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        walk(full, depth + 1);
+        await walk(full, depth + 1);
       } else if (entry.isFile() && isVideoFile(entry.name)) {
         episodeCount += 1;
         if (!detectedSubgroup) {
@@ -119,7 +120,7 @@ function collectLocalEpisodeNumbers(dirPath: string): {
     }
   };
 
-  walk(dirPath, 0);
+  await walk(dirPath, 0);
   return { episodeNumbers, maxEpisodeNumber, episodeCount, detectedSubgroup };
 }
 
@@ -134,8 +135,8 @@ export async function detectLocalProgress(
   bangumiTitle: string,
   preferredSavePath?: string,
 ): Promise<LocalProgressHint> {
-  if (preferredSavePath && fs.existsSync(preferredSavePath)) {
-    const local = collectLocalEpisodeNumbers(preferredSavePath);
+  if (preferredSavePath) {
+    const local = await collectLocalEpisodeNumbers(preferredSavePath);
     if (local.episodeCount > 0) {
       return {
         savePath: preferredSavePath,
@@ -348,7 +349,7 @@ export async function checkSingleSubscription(
 
   try {
     const releases = await fetchRss(sub.rssUrl);
-    const localInfo = collectLocalEpisodeNumbers(sub.savePath);
+    const localInfo = await collectLocalEpisodeNumbers(sub.savePath);
     const seenIds = new Set(updated.downloadedReleaseIds);
 
     let activeHashes = new Set<string>();

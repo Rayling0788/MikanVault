@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -73,6 +73,7 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
   const { pushToast } = useToast();
   const [filter, setFilter] = useState<TorrentFilter>('all');
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [busyHash, setBusyHash] = useState<string | null>(null);
   const [batchControlling, setBatchControlling] = useState<'pause' | 'resume' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QbTorrentItem | null>(null);
@@ -158,7 +159,7 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
   };
 
   const filteredTorrents = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return torrents.filter((t) => {
       const meta = getTorrentStateMeta(t.state);
       if (filter === 'downloading' && meta.category !== 'downloading') return false;
@@ -174,14 +175,12 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
       }
       return true;
     });
-  }, [torrents, filter, search]);
+  }, [torrents, filter, deferredSearch]);
 
   if (!loading && !connected) {
     return (
       <div className="flex h-full items-center justify-center px-6 py-10">
         <div className="card-elevated relative w-full max-w-[540px] overflow-hidden rounded-2xl p-8">
-          <div className="pointer-events-none absolute -top-20 -right-16 h-56 w-56 rounded-full bg-[#FF7A2F]/12 blur-3xl" />
-
           <div className="relative flex flex-col items-center text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#FF7A2F]/30 bg-[#FF7A2F]/14 text-[#FF7A2F]">
               <Power className="h-7 w-7" />

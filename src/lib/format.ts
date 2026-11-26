@@ -90,25 +90,26 @@ export function deriveSeriesFolderNameFromTitle(rawTitle: string): string {
   return sanitizeFolderName(name.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim());
 }
 
+const RELEASE_TAG_PATTERNS: Array<[RegExp, string]> = [
+  [/\b(2160p|4K|UHD)\b/i, '4K'],
+  [/\b1080p\b/i, '1080P'],
+  [/\b720p\b/i, '720P'],
+  [/\b(HEVC|x265|H\.?265)\b/i, 'HEVC'],
+  [/\b(AVC|x264|H\.?264)\b/i, 'AVC'],
+  [/\b10-?bit\b/i, '10bit'],
+  [/\b(BDRip|BD-?Remux|Blu-?Ray)\b/i, 'BDRip'],
+  [/\b(WebRip|WEB-?DL)\b/i, 'WebRip'],
+  [/(简繁日内封|简繁内封|简繁中字|简繁)/i, '简繁'],
+  [/(简日双语|简日内嵌|简日)/i, '简日'],
+  [/(繁日双语|繁日内嵌|繁日)/i, '繁日'],
+  [/(简体|简中|CHS)/i, '简中'],
+  [/(繁体|繁中|CHT)/i, '繁中'],
+];
+
 export function extractReleaseTags(title: string, existingTags: string[] = []): string[] {
   const found = new Set<string>(existingTags.filter(Boolean));
-  const patterns: Array<[RegExp, string]> = [
-    [/\b(2160p|4K|UHD)\b/i, '4K'],
-    [/\b1080p\b/i, '1080P'],
-    [/\b720p\b/i, '720P'],
-    [/\b(HEVC|x265|H\.?265)\b/i, 'HEVC'],
-    [/\b(AVC|x264|H\.?264)\b/i, 'AVC'],
-    [/\b10-?bit\b/i, '10bit'],
-    [/\b(BDRip|BD-?Remux|Blu-?Ray)\b/i, 'BDRip'],
-    [/\b(WebRip|WEB-?DL)\b/i, 'WebRip'],
-    [/(简繁日内封|简繁内封|简繁中字|简繁)/i, '简繁'],
-    [/(简日双语|简日内嵌|简日)/i, '简日'],
-    [/(繁日双语|繁日内嵌|繁日)/i, '繁日'],
-    [/(简体|简中|CHS)/i, '简中'],
-    [/(繁体|繁中|CHT)/i, '繁中'],
-  ];
 
-  for (const [regex, label] of patterns) {
+  for (const [regex, label] of RELEASE_TAG_PATTERNS) {
     if (regex.test(title)) {
       found.add(label);
     }

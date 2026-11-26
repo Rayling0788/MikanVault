@@ -200,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = React.memo(({
                   type="button"
                   onClick={() => onSelectSection(item.id)}
                   title={collapsed ? item.label : undefined}
-                  className={`group relative flex w-full items-center rounded-xl transition-all duration-150 ${
+                  className={`group relative flex w-full items-center rounded-xl transition-colors duration-150 ${
                     collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2 text-left'
                   } ${
                     isActive

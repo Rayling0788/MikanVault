@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Ban,
@@ -65,10 +65,12 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
   const { pushToast } = useToast();
   const [filter, setFilter] = useState<CloudFilter>('all');
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [checkingQueue, setCheckingQueue] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
+  const deferredPickerQuery = useDeferredValue(pickerQuery);
   const [uploadTarget, setUploadTarget] = useState<CloudUploadTarget | null>(null);
 
   const localSeries = useMemo(
@@ -81,7 +83,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
   );
 
   const filteredLocalPicker = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase();
+    const q = deferredPickerQuery.trim().toLowerCase();
     if (!q) return localSeries;
     return localSeries.filter(
       (s) =>
@@ -89,10 +91,10 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
         (s.originalTitle && s.originalTitle.toLowerCase().includes(q)) ||
         s.folderPath.toLowerCase().includes(q),
     );
-  }, [localSeries, pickerQuery]);
+  }, [localSeries, deferredPickerQuery]);
 
   const filteredJobs = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return jobs.filter((job) => {
       if (filter === 'copying' && job.status !== 'copying') return false;
       if (filter === 'queued' && job.status !== 'queued') return false;
@@ -110,7 +112,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
       }
       return true;
     });
-  }, [jobs, filter, search]);
+  }, [jobs, filter, deferredSearch]);
 
   const freeBytes = status?.freeBytes ?? 0;
   const totalDiskBytes = status?.totalBytes ?? 0;
@@ -214,9 +216,6 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
     <div className="mx-auto max-w-[1380px] space-y-6 px-6 py-6 pb-16">
       {/* Cloud Drive Vault Hero Banner */}
       <section className="cloud-hero-banner relative overflow-hidden rounded-2xl p-6">
-        <div className="pointer-events-none absolute -top-24 -right-16 h-64 w-64 rounded-full bg-sky-500/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-12 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl" />
-
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-3.5">
             <div className="flex flex-wrap items-center gap-2.5">

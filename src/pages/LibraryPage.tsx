@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import {
   RefreshCw,
   Search,
@@ -66,6 +66,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 }) => {
   const { pushToast } = useToast();
   const [filter, setFilter] = useState('');
+  const deferredFilter = useDeferredValue(filter);
   const [activeTab, setActiveTab] = useState<LibraryFilterTab>('all');
   const [scrapingAll, setScrapingAll] = useState(false);
   const [playingPath, setPlayingPath] = useState<string | null>(null);
@@ -121,7 +122,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
   }, [seriesList]);
 
   const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = deferredFilter.trim().toLowerCase();
     return seriesList.filter((s) => {
       if (
         activeTab === 'watching' &&
@@ -144,7 +145,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         s.folderPath.toLowerCase().includes(q)
       );
     });
-  }, [seriesList, activeTab, filter]);
+  }, [seriesList, activeTab, deferredFilter]);
 
   const handlePlayContinue = async (ep: LibraryEpisode) => {
     setPlayingPath(ep.filePath);
@@ -559,7 +560,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   </div>
 
                   {/* Centered Frosted Play Orb on Hover */}
-                  <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:scale-105 group-hover:opacity-100">
+                  <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-[transform,opacity] duration-150 group-hover:scale-105 group-hover:opacity-100">
                     <span className="poster-hover-pill flex h-12 w-12 items-center justify-center rounded-full">
                       <Play className="ml-0.5 h-5 w-5 fill-[#FF7A2F] text-[#FF7A2F]" />
                     </span>

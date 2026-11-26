@@ -33,6 +33,29 @@ const inFlightImageFetches = new Map<
   string,
   Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string } | { status: number }>
 >();
+const MAX_CONCURRENT_IMAGE_FETCHES = 8;
+let activeImageFetches = 0;
+const imageFetchWaitQueue: Array<() => void> = [];
+
+function enqueueImageFetch<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      activeImageFetches += 1;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeImageFetches -= 1;
+          const next = imageFetchWaitQueue.shift();
+          if (next) next();
+        });
+    };
+    if (activeImageFetches < MAX_CONCURRENT_IMAGE_FETCHES) {
+      run();
+    } else {
+      imageFetchWaitQueue.push(run);
+    }
+  });
+}
 
 function guessMimeFromExt(ext: string): string {
   switch (ext.toLowerCase()) {
@@ -135,20 +158,23 @@ function registerMikanImageProtocol(): void {
           fsp.readFile(cacheDataPath),
         ]);
         const meta = JSON.parse(metaRaw) as { contentType?: string };
-        return new Response(buf, {
-          status: 200,
-          headers: {
-            'Content-Type': meta.contentType || 'image/jpeg',
-            'Cache-Control': 'public, max-age=604800',
-          },
-        });
+        const cachedContentType = meta.contentType || 'image/jpeg';
+        if (buf.byteLength > 0 && !cachedContentType.toLowerCase().includes('text/html')) {
+          return new Response(buf, {
+            status: 200,
+            headers: {
+              'Content-Type': cachedContentType,
+              'Cache-Control': 'public, max-age=604800',
+            },
+          });
+        }
       } catch {
         // Cache miss or read failed; fetch from network
       }
 
       let fetchPromise = inFlightImageFetches.get(hash);
       if (!fetchPromise) {
-        fetchPromise = (async () => {
+        fetchPromise = enqueueImageFetch(async () => {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 15000);
           try {
@@ -173,6 +199,10 @@ function registerMikanImageProtocol(): void {
               (res.headers.get('content-type') || '').split(';')[0].trim() ||
               guessMimeFromExt(path.extname(parsedTarget.pathname));
 
+            if (bytes.byteLength === 0 || contentType.toLowerCase().includes('text/html')) {
+              return { status: 502 };
+            }
+
             void Promise.all([
               fsp.writeFile(cacheDataPath, bytes),
               fsp.writeFile(cacheMetaPath, JSON.stringify({ contentType, url: targetUrl })),
@@ -182,7 +212,7 @@ function registerMikanImageProtocol(): void {
           } finally {
             clearTimeout(timer);
           }
-        })().finally(() => {
+        }).finally(() => {
           if (inFlightImageFetches.get(hash) === fetchPromise) {
             inFlightImageFetches.delete(hash);
           }

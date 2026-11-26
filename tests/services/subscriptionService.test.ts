@@ -460,4 +460,16 @@ describe('subscriptionService', () => {
     expect(allAfter.find((s) => s.id === subA.id)?.includeKeywords).toBe('HEVC');
     expect(allAfter.find((s) => s.id === subA.id)?.totalAutoDownloaded).toBe(1);
   });
+
+  it('async detects nested local episode directories without missing deeper season folders', async () => {
+    const nestedDir = path.join(downloadDir, 'NestedProgress', 'Season 2');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(path.join(nestedDir, '[ANi] Sample - 11 [1080P].mp4'), 'ep11');
+    fs.writeFileSync(path.join(nestedDir, '[ANi] Sample - 12 [1080P].mp4'), 'ep12');
+
+    const hint = await detectLocalProgress('4300', 'NestedProgress', path.join(downloadDir, 'NestedProgress'));
+    expect(hint.episodeCount).toBe(2);
+    expect(hint.maxEpisodeNumber).toBe(12);
+    expect(hint.detectedSubgroup).toBe('ANi');
+  });
 });

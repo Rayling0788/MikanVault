@@ -234,8 +234,11 @@ export function recoverStaleCloudJobs(minStaleAgeMs = 0): number {
 }
 
 export function listCloudJobs(): CloudTransferJob[] {
-  // Recover any stale copying jobs from external/crashed processes idle for >90s
-  recoverStaleCloudJobs(90_000);
+  const jobs = getCloudTransferJobs();
+  // Recover any stale copying jobs only when an inactive copying record exists
+  if (jobs.some((j) => j.status === 'copying' && !activeRunningJobIds.has(j.id))) {
+    recoverStaleCloudJobs(90_000);
+  }
   return getCloudTransferJobs()
     .map((job) => {
       if (job.status === 'copying') {
@@ -1061,7 +1064,10 @@ export async function uploadLibraryToCloud(
 
   let expectedTotalBytes = 0;
   for (const srcFile of cleanFilePaths) {
-    if (!fs.existsSync(srcFile)) {
+    try {
+      const st = await fsp.stat(srcFile);
+      expectedTotalBytes += st.size;
+    } catch {
       return {
         ok: false,
         copiedFiles: 0,
@@ -1069,11 +1075,6 @@ export async function uploadLibraryToCloud(
         deletedLocal: false,
         error: `找不到本地文件: ${srcFile}`,
       };
-    }
-    try {
-      expectedTotalBytes += (await fsp.stat(srcFile)).size;
-    } catch {
-      // Ignore stat issue before copy
     }
   }
 

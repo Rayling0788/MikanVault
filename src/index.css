@@ -132,8 +132,8 @@
 /* Glass surface & subtle shimmer helpers */
 .glass-panel {
   background: var(--mv-glass-bg);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
 }
 
 html[data-theme="light"] .glass-panel {

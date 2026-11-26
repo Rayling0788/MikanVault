@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   Film,
@@ -104,11 +104,14 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
   const [subgroupFilter, setSubgroupFilter] = useState<string>('all');
   const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [releaseFilterText, setReleaseFilterText] = useState('');
+  const deferredReleaseFilter = useDeferredValue(releaseFilterText);
+  const [visibleCount, setVisibleCount] = useState(60);
 
   // Historical season archive state
   const [archiveYear, setArchiveYear] = useState<number>(2020);
   const [archiveSeason, setArchiveSeason] = useState<MikanSeasonName>('秋');
   const [archiveFilterText, setArchiveFilterText] = useState('');
+  const deferredArchiveFilter = useDeferredValue(archiveFilterText);
   const [archiveData, setArchiveData] = useState<MikanScheduleResponse | null>(null);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -220,7 +223,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
     (availableLanguages.length === 1 && unclassifiedLanguageCount > 0);
 
   const filteredReleases = useMemo(() => {
-    const kw = releaseFilterText.trim().toLowerCase();
+    const kw = deferredReleaseFilter.trim().toLowerCase();
     return subgroupFilteredReleases.filter((rel) => {
       if (!matchesSubtitleLanguage(rel.title, languageFilter)) {
         return false;
@@ -230,7 +233,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
       }
       return true;
     });
-  }, [subgroupFilteredReleases, languageFilter, releaseFilterText]);
+  }, [subgroupFilteredReleases, languageFilter, deferredReleaseFilter]);
 
   const selection = useReleaseSelection(filteredReleases);
 
@@ -240,8 +243,9 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
 
   useEffect(() => {
     selection.clear();
+    setVisibleCount(60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.query, subgroupFilter, languageFilter]);
+  }, [result?.query, subgroupFilter, languageFilter, deferredReleaseFilter]);
 
   const archiveItems = useMemo(() => {
     if (!archiveData) return [];
@@ -255,10 +259,10 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
         }
       }
     }
-    const kw = archiveFilterText.trim().toLowerCase();
+    const kw = deferredArchiveFilter.trim().toLowerCase();
     if (!kw) return list;
     return list.filter((b) => b.title.toLowerCase().includes(kw));
-  }, [archiveData, archiveFilterText]);
+  }, [archiveData, deferredArchiveFilter]);
 
   const hasQuery = Boolean(query.trim());
   const isEmptyResult = hasQuery && !loading && !error && bangumis.length === 0 && allReleases.length === 0;
@@ -271,7 +275,6 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
     >
       {/* Top Search & Mode Header Card */}
       <section className="card-elevated relative overflow-hidden rounded-2xl p-5">
-        <div className="pointer-events-none absolute -top-20 -right-14 h-56 w-56 rounded-full bg-[#FF7A2F]/12 blur-3xl" />
         <div className="relative space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -741,7 +744,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {filteredReleases.map((rel) => (
+                  {filteredReleases.slice(0, visibleCount).map((rel) => (
                     <ReleaseRow
                       key={rel.id}
                       release={rel}
@@ -751,6 +754,24 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                       onDownload={onRequestDownload}
                     />
                   ))}
+                  {filteredReleases.length > visibleCount && (
+                    <div className="flex items-center justify-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setVisibleCount((prev) => prev + 60)}
+                        className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+                      >
+                        加载更多资源（剩余 {filteredReleases.length - visibleCount} 条）
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVisibleCount(filteredReleases.length)}
+                        className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+                      >
+                        显示全部
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </section>

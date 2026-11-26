@@ -39,7 +39,8 @@ import {
 } from '../electron/services/subscriptionService';
 import { createMcpServer, formatToolJson } from './protocol';
 
-const MCP_GUIDE_MARKDOWN = `# MikanVault MCP Assistant Guide
+function buildMcpGuideMarkdown(): string {
+  return `# MikanVault MCP Assistant Guide
 
 MikanVault shares a live state directory (\`${getDataDir()}\`) between the desktop Electron app and this MCP server.
 
@@ -60,6 +61,7 @@ MikanVault shares a live state directory (\`${getDataDir()}\`) between the deskt
    - Confirm whether the user wants \`deleteLocal: true\` (free local space after byte-size verification) or \`deleteLocal: false\` (keep both copies).
    - Call \`cloud_upload_library\`. To cancel an active upload job, call \`cloud_cancel_job\`.
 `;
+}
 
 function matchSeriesFuzzy(
   seriesList: Awaited<ReturnType<typeof scanLibrary>>,
@@ -89,7 +91,7 @@ function matchSeriesFuzzy(
 export function createMikanVaultMcpServer() {
   return createMcpServer({
     name: 'mikanvault-mcp',
-    version: '0.1.0',
+    version: '0.2.1',
     instructions:
       'Use these tools to search anime on Mikan Project, manage qBittorrent downloads and RSS auto-subscriptions, organize/scrape the local anime library, and upload or offload anime to Google Drive.',
     tools: [
@@ -709,7 +711,7 @@ export function createMikanVaultMcpServer() {
           description: 'Agent instructions and workflow overview for MikanVault MCP tools',
           mimeType: 'text/markdown',
         },
-        reader: async () => MCP_GUIDE_MARKDOWN,
+        reader: async () => buildMcpGuideMarkdown(),
       },
       {
         definition: {

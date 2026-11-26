@@ -26,6 +26,18 @@ interface PosterImageProps {
   compactFallback?: boolean;
 }
 
+const MAX_DECODED_URLS = 600;
+const decodedImageUrls = new Set<string>();
+
+function markImageDecoded(url: string): void {
+  if (!url || decodedImageUrls.has(url)) return;
+  if (decodedImageUrls.size >= MAX_DECODED_URLS) {
+    const oldest = decodedImageUrls.values().next().value;
+    if (oldest !== undefined) decodedImageUrls.delete(oldest);
+  }
+  decodedImageUrls.add(url);
+}
+
 export const PosterImage: React.FC<PosterImageProps> = React.memo(({
   url,
   title,
@@ -36,11 +48,13 @@ export const PosterImage: React.FC<PosterImageProps> = React.memo(({
   const { src, loading, failed } = useProxiedImage(url);
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgError, setImgError] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const wasPreDecoded = Boolean(src && decodedImageUrls.has(src));
+  const [loaded, setLoaded] = useState<boolean>(wasPreDecoded);
 
   useEffect(() => {
     setImgError(false);
-    if (src && imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+    if (src && (decodedImageUrls.has(src) || (imgRef.current?.complete && imgRef.current.naturalWidth > 0))) {
+      markImageDecoded(src);
       setLoaded(true);
     } else {
       setLoaded(false);
@@ -72,11 +86,14 @@ export const PosterImage: React.FC<PosterImageProps> = React.memo(({
           alt={title}
           loading="lazy"
           decoding="async"
-          onLoad={() => setLoaded(true)}
+          onLoad={() => {
+            markImageDecoded(src);
+            setLoaded(true);
+          }}
           onError={() => setImgError(true)}
-          className={`h-full w-full object-cover transition-opacity duration-300 ${
-            loaded ? 'opacity-100' : 'opacity-0'
-          } ${imgClassName}`}
+          className={`h-full w-full object-cover ${
+            wasPreDecoded ? '' : 'transition-opacity duration-150'
+          } ${loaded ? 'opacity-100' : 'opacity-0'} ${imgClassName}`}
         />
       )}
 

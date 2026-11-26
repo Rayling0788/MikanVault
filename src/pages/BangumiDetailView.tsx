@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ExternalLink,
   Rss,
@@ -26,6 +26,7 @@ import {
   matchesSubtitleLanguage,
 } from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
+import { getCachedBangumiDetail, setCachedBangumiDetail } from '@/lib/mikanClientCache';
 import { PosterImage } from '@/components/PosterImage';
 import { ReleaseRow } from '@/components/ReleaseRow';
 import { BatchActionBar } from '@/components/BatchActionBar';
@@ -78,12 +79,29 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   const [activeSubgroupId, setActiveSubgroupId] = useState<string>('');
   const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [filterText, setFilterText] = useState('');
+  const deferredFilterText = useDeferredValue(filterText);
+  const [visibleCount, setVisibleCount] = useState(60);
 
-  const fetchDetail = async () => {
+  const fetchDetail = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = getCachedBangumiDetail(bangumiId);
+      if (cached) {
+        setDetail(cached);
+        setLoading(false);
+        setError(null);
+        if (cached.subgroups.length > 0) {
+          setActiveSubgroupId((prev) =>
+            cached.subgroups.some((s) => s.id === prev) ? prev : cached.subgroups[0].id
+          );
+        }
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await api.getBangumiDetail(bangumiId);
+      setCachedBangumiDetail(bangumiId, data);
       setDetail(data);
       if (data.subgroups.length > 0) {
         setActiveSubgroupId((prev) =>
@@ -98,7 +116,11 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   };
 
   useEffect(() => {
+    setFilterText('');
+    setLanguageFilter('all');
+    setVisibleCount(60);
     if (initialDetail && initialDetail.id === bangumiId) {
+      setCachedBangumiDetail(bangumiId, initialDetail);
       setDetail(initialDetail);
       setLoading(false);
       if (initialDetail.subgroups.length > 0) {
@@ -106,8 +128,17 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
       }
       return;
     }
-    setFilterText('');
-    setLanguageFilter('all');
+    const cached = getCachedBangumiDetail(bangumiId);
+    if (cached) {
+      setDetail(cached);
+      setLoading(false);
+      setError(null);
+      if (cached.subgroups.length > 0) {
+        setActiveSubgroupId(cached.subgroups[0].id);
+      }
+      return;
+    }
+    setDetail(null);
     void fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bangumiId]);
@@ -147,13 +178,13 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
 
   const filteredEpisodes = useMemo(() => {
     if (!activeSubgroup) return [];
-    const q = filterText.trim().toLowerCase();
+    const q = deferredFilterText.trim().toLowerCase();
     return activeSubgroup.episodes.filter((ep) => {
       if (!matchesSubtitleLanguage(ep.title, languageFilter)) return false;
       if (q && !ep.title.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [activeSubgroup, filterText, languageFilter]);
+  }, [activeSubgroup, deferredFilterText, languageFilter]);
 
   const enrichedFilteredEpisodes = useMemo(() => {
     if (!detail) return filteredEpisodes;
@@ -174,8 +205,9 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
 
   useEffect(() => {
     selection.clear();
+    setVisibleCount(60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bangumiId, activeSubgroup?.id, languageFilter]);
+  }, [bangumiId, activeSubgroup?.id, languageFilter, deferredFilterText]);
 
   const handleExpandSubgroup = async () => {
     if (!detail || !activeSubgroup) return;
@@ -235,20 +267,19 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               src={bgImg.src}
               alt=""
               aria-hidden="true"
-              className="h-full w-full scale-110 object-cover opacity-30 blur-3xl saturate-125"
+              className="h-full w-full scale-110 object-cover opacity-25 blur-md saturate-125"
             />
           )}
           <div className="detail-hero-scrim absolute inset-0" />
         </div>
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">
-          {/* Crisp 3:4 Poster with Luminous Depth */}
+          {/* Crisp 3:4 Poster */}
           <div className="relative shrink-0">
-            <div className="pointer-events-none absolute -inset-3 rounded-3xl bg-[#FF7A2F]/18 opacity-65 blur-2xl" />
             <PosterImage
               url={coverUrl}
               title={title}
-              className="relative h-[228px] w-[171px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_24px_54px_rgba(0,0,0,0.88)]"
+              className="relative h-[228px] w-[171px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_20px_42px_rgba(0,0,0,0.65)]"
             />
           </div>
 
@@ -350,7 +381,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               )}
               <button
                 type="button"
-                onClick={() => void fetchDetail()}
+                onClick={() => void fetchDetail(true)}
                 disabled={loading}
                 className="btn-ghost-dark inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-[12.5px] font-medium"
               >
@@ -552,7 +583,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               </div>
             ) : (
               <div className="space-y-2.5">
-                {enrichedFilteredEpisodes.map((ep) => (
+                {enrichedFilteredEpisodes.slice(0, visibleCount).map((ep) => (
                   <ReleaseRow
                     key={ep.id}
                     release={ep}
@@ -563,6 +594,24 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
                     onDownload={(r) => onRequestDownload(r, detail, activeSubgroup, languageFilter)}
                   />
                 ))}
+                {enrichedFilteredEpisodes.length > visibleCount && (
+                  <div className="flex items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount((prev) => prev + 60)}
+                      className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+                    >
+                      加载更多资源（剩余 {enrichedFilteredEpisodes.length - visibleCount} 条）
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount(enrichedFilteredEpisodes.length)}
+                      className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+                    >
+                      显示全部
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>

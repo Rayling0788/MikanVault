@@ -268,7 +268,7 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
               src={bgImg.src}
               alt=""
               aria-hidden="true"
-              className="h-full w-full scale-110 object-cover opacity-28 blur-3xl saturate-125"
+              className="h-full w-full scale-110 object-cover opacity-25 blur-md saturate-125"
             />
           )}
           <div className="detail-hero-scrim absolute inset-0" />
@@ -276,11 +276,10 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">
           <div className="relative shrink-0">
-            <div className="pointer-events-none absolute -inset-3 rounded-3xl bg-[#FF7A2F]/18 opacity-65 blur-2xl" />
             <PosterImage
               url={series.coverUrl}
               title={series.title}
-              className="relative h-[224px] w-[168px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_24px_54px_rgba(0,0,0,0.88)]"
+              className="relative h-[224px] w-[168px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_20px_42px_rgba(0,0,0,0.65)]"
             />
           </div>
 

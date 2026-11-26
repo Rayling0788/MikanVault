@@ -13,6 +13,11 @@ import type {
 } from '@shared/types';
 import '@/styles/app.css';
 import { api, isElectronRuntime } from '@/lib/api';
+import {
+  getCachedSchedule,
+  getScheduleCacheKey,
+  setCachedSchedule,
+} from '@/lib/mikanClientCache';
 import { ToastProvider, useToast } from '@/hooks/useToast';
 import { useQbStatus } from '@/hooks/useQbStatus';
 import { useCloudStatus } from '@/hooks/useCloudStatus';
@@ -67,10 +72,14 @@ const MikanVaultShell: React.FC = () => {
   const mainScrollRef = useRef<HTMLDivElement>(null);
 
   const [activeSection, setActiveSection] = useState<NavSection>('discover');
+  const [visitedSections, setVisitedSections] = useState<Set<NavSection>>(
+    () => new Set<NavSection>(['discover']),
+  );
   const [overlay, setOverlay] = useState<OverlayView>({ kind: 'none' });
   const [customRssUrl, setCustomRssUrl] = useState<string | undefined>(undefined);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const showScrollTopRef = useRef(false);
+  const scrollPositionsRef = useRef<Map<string, number>>(new Map());
 
   // Settings
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -115,27 +124,72 @@ const MikanVaultShell: React.FC = () => {
     () => cloudRefreshRef.current(),
   );
 
-  const scrollTop = useCallback(() => {
-    mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  const viewKey =
+    overlay.kind === 'bangumi'
+      ? `bangumi:${overlay.bangumiId}`
+      : overlay.kind === 'series'
+        ? `series:${overlay.seriesId}`
+        : `section:${activeSection}`;
+  const viewKeyRef = useRef(viewKey);
+  viewKeyRef.current = viewKey;
+
+  const markSectionVisited = useCallback((section: NavSection) => {
+    setVisitedSections((prev) => {
+      if (prev.has(section)) return prev;
+      const next = new Set(prev);
+      next.add(section);
+      return next;
+    });
   }, []);
 
-  const loadSchedule = useCallback(async (year?: number, season?: MikanSeasonName) => {
-    setScheduleLoading(true);
-    setScheduleError(null);
-    if (year !== undefined && season !== undefined) {
-      setSelectedSeason({ year, season });
-    } else {
-      setSelectedSeason(null);
+  const syncScrollForTransition = useCallback((targetKey: string, forceTop = false) => {
+    const el = mainScrollRef.current;
+    if (el) {
+      scrollPositionsRef.current.set(viewKeyRef.current, el.scrollTop);
     }
-    try {
-      const data = await api.getSchedule(year, season);
-      setSchedule(data);
-    } catch (err) {
-      setScheduleError(err instanceof Error ? err.message : '加载放送表失败');
-    } finally {
-      setScheduleLoading(false);
-    }
+    const targetScroll = forceTop ? 0 : (scrollPositionsRef.current.get(targetKey) ?? 0);
+    window.requestAnimationFrame(() => {
+      const targetEl = mainScrollRef.current;
+      if (!targetEl) return;
+      targetEl.scrollTop = targetScroll;
+      const shouldShow = targetScroll > 420;
+      if (shouldShow !== showScrollTopRef.current) {
+        showScrollTopRef.current = shouldShow;
+        setShowScrollTop(shouldShow);
+      }
+    });
   }, []);
+
+  const loadSchedule = useCallback(
+    async (year?: number, season?: MikanSeasonName, forceRefresh = false) => {
+      setScheduleError(null);
+      if (year !== undefined && season !== undefined) {
+        setSelectedSeason({ year, season });
+      } else {
+        setSelectedSeason(null);
+      }
+      const cacheKey = getScheduleCacheKey(year, season);
+      if (!forceRefresh) {
+        const cached = getCachedSchedule(cacheKey);
+        if (cached) {
+          setSchedule(cached);
+          setScheduleLoading(false);
+          return;
+        }
+      }
+      setScheduleLoading(true);
+      try {
+        const data = await api.getSchedule(year, season);
+        setCachedSchedule(cacheKey, data);
+        setSchedule(data);
+      } catch (err) {
+        setScheduleError(err instanceof Error ? err.message : '加载放送表失败');
+      } finally {
+        setScheduleLoading(false);
+      }
+    },
+    [],
+  );
 
   const scanLibrary = useCallback(async (silent = false) => {
     setLibraryScanning(true);
@@ -219,10 +273,11 @@ const MikanVaultShell: React.FC = () => {
   }, [activeSection, libraryInitialized, libraryScanning, scanLibrary]);
 
   const handleSelectSection = useCallback((section: NavSection) => {
+    markSectionVisited(section);
     setActiveSection(section);
     setOverlay({ kind: 'none' });
-    scrollTop();
-  }, [scrollTop]);
+    syncScrollForTransition(`section:${section}`);
+  }, [markSectionVisited, syncScrollForTransition]);
 
   const handleOpenBangumiCard = useCallback((card: MikanBangumiCard, fromSearch = false) => {
     setOverlay({
@@ -232,8 +287,8 @@ const MikanVaultShell: React.FC = () => {
       initialCoverUrl: card.coverUrl,
       returnToSearch: fromSearch,
     });
-    scrollTop();
-  }, [scrollTop]);
+    syncScrollForTransition(`bangumi:${card.id}`, true);
+  }, [syncScrollForTransition]);
 
   const handleOpenBangumiId = useCallback((id: string, detail?: MikanBangumiDetail) => {
     setOverlay({
@@ -243,19 +298,20 @@ const MikanVaultShell: React.FC = () => {
       initialCoverUrl: detail?.coverUrl,
       initialDetail: detail || null,
     });
-    scrollTop();
-  }, [scrollTop]);
+    syncScrollForTransition(`bangumi:${id}`, true);
+  }, [syncScrollForTransition]);
 
   const handleSearchSubmit = useCallback(async (query: string) => {
     const clean = query.trim();
     if (!clean) return;
+    markSectionVisited('search');
     setSearchInput(clean);
     setActiveSearchQuery(clean);
     setActiveSection('search');
     setOverlay({ kind: 'none' });
     setSearchLoading(true);
     setSearchError(null);
-    scrollTop();
+    syncScrollForTransition('section:search', true);
     try {
       const res = await api.searchMikan(clean);
       setSearchResult(res);
@@ -264,7 +320,7 @@ const MikanVaultShell: React.FC = () => {
     } finally {
       setSearchLoading(false);
     }
-  }, [scrollTop]);
+  }, [markSectionVisited, syncScrollForTransition]);
 
   const handleClearSearch = useCallback(() => {
     setSearchInput('');
@@ -275,13 +331,15 @@ const MikanVaultShell: React.FC = () => {
 
   const handleGoBack = useCallback(() => {
     if (overlay.kind === 'bangumi' && overlay.returnToSearch) {
+      markSectionVisited('search');
       setActiveSection('search');
       setOverlay({ kind: 'none' });
+      syncScrollForTransition('section:search');
     } else {
       setOverlay({ kind: 'none' });
+      syncScrollForTransition(`section:${activeSection}`);
     }
-    scrollTop();
-  }, [overlay]);
+  }, [overlay, activeSection, markSectionVisited, syncScrollForTransition]);
 
   useEffect(() => {
     const NAV_ORDER: NavSection[] = [
@@ -327,16 +385,14 @@ const MikanVaultShell: React.FC = () => {
         if (num >= 1 && num <= 8) {
           e.preventDefault();
           const targetSection = NAV_ORDER[num - 1];
-          setActiveSection(targetSection);
-          setOverlay({ kind: 'none' });
-          scrollTop();
+          handleSelectSection(targetSection);
         }
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [overlay.kind, downloadModal.targets.length, subscribeTarget, handleGoBack]);
+  }, [overlay.kind, downloadModal.targets.length, subscribeTarget, handleGoBack, handleSelectSection]);
 
   const handleLaunchQbWithToast = useCallback(async () => {
     const res = await qb.launchQb();
@@ -389,13 +445,6 @@ const MikanVaultShell: React.FC = () => {
     };
   }, [overlay, activeSection, activeSeries, selectedSeason]);
 
-  const viewKey =
-    overlay.kind === 'bangumi'
-      ? `bangumi:${overlay.bangumiId}`
-      : overlay.kind === 'series'
-        ? `series:${overlay.seriesId}`
-        : `section:${activeSection}`;
-
   return (
     <div className="app-canvas-glow flex h-screen w-screen overflow-hidden text-slate-100">
       {/* Left Navigation Rail */}
@@ -433,7 +482,9 @@ const MikanVaultShell: React.FC = () => {
         <main
           ref={mainScrollRef}
           onScroll={(e) => {
-            const next = e.currentTarget.scrollTop > 420;
+            const top = e.currentTarget.scrollTop;
+            scrollPositionsRef.current.set(viewKeyRef.current, top);
+            const next = top > 420;
             if (next !== showScrollTopRef.current) {
               showScrollTopRef.current = next;
               setShowScrollTop(next);
@@ -441,18 +492,39 @@ const MikanVaultShell: React.FC = () => {
           }}
           className="min-h-0 flex-1 overflow-y-auto"
         >
-          <div key={viewKey} className="animate-page-enter min-h-full">
-          {overlay.kind === 'bangumi' ? (
-            <BangumiDetailView
-              bangumiId={overlay.bangumiId}
-              initialTitle={overlay.initialTitle}
-              initialCoverUrl={overlay.initialCoverUrl}
-              initialDetail={overlay.initialDetail}
-              subscriptions={subscriptions}
-              onRequestDownload={(release, detail, subgroup, preferredLanguageFilter) =>
-                setDownloadModal({
-                  targets: [
-                    {
+          {overlay.kind === 'bangumi' && (
+            <div key={`bangumi:${overlay.bangumiId}`} className="animate-page-enter min-h-full">
+              <BangumiDetailView
+                bangumiId={overlay.bangumiId}
+                initialTitle={overlay.initialTitle}
+                initialCoverUrl={overlay.initialCoverUrl}
+                initialDetail={overlay.initialDetail}
+                subscriptions={subscriptions}
+                onRequestDownload={(release, detail, subgroup, preferredLanguageFilter) =>
+                  setDownloadModal({
+                    targets: [
+                      {
+                        release,
+                        bangumiId: detail.id,
+                        bangumiTitle: detail.title,
+                        coverUrl: detail.coverUrl,
+                        subgroupId: subgroup?.id || release.subgroupId,
+                        subgroupName: subgroup?.name || release.subgroup,
+                        rssUrl: subgroup?.rssUrl,
+                        preferredLanguageFilter,
+                      },
+                    ],
+                  })
+                }
+                onRequestBatchDownload={(
+                  releases,
+                  detail,
+                  onDoneClear,
+                  subgroup,
+                  preferredLanguageFilter,
+                ) =>
+                  setDownloadModal({
+                    targets: releases.map((release) => ({
                       release,
                       bangumiId: detail.id,
                       bangumiTitle: detail.title,
@@ -461,138 +533,186 @@ const MikanVaultShell: React.FC = () => {
                       subgroupName: subgroup?.name || release.subgroup,
                       rssUrl: subgroup?.rssUrl,
                       preferredLanguageFilter,
-                    },
-                  ],
-                })
-              }
-              onRequestBatchDownload={(
-                releases,
-                detail,
-                onDoneClear,
-                subgroup,
-                preferredLanguageFilter,
-              ) =>
-                setDownloadModal({
-                  targets: releases.map((release) => ({
-                    release,
+                    })),
+                    onSuccessClear: onDoneClear,
+                  })
+                }
+                onRequestSubscribe={(detail, subgroup, existing, preferredLanguageFilter) =>
+                  setSubscribeTarget({
                     bangumiId: detail.id,
                     bangumiTitle: detail.title,
                     coverUrl: detail.coverUrl,
-                    subgroupId: subgroup?.id || release.subgroupId,
-                    subgroupName: subgroup?.name || release.subgroup,
-                    rssUrl: subgroup?.rssUrl,
+                    detail,
+                    subgroup,
+                    existing,
                     preferredLanguageFilter,
-                  })),
-                  onSuccessClear: onDoneClear,
-                })
+                  })
+                }
+                onOpenRssFeed={(rssUrl) => {
+                  setCustomRssUrl(rssUrl);
+                  handleSelectSection('latest');
+                }}
+              />
+            </div>
+          )}
+
+          {overlay.kind === 'series' && activeSeries && (
+            <div key={`series:${overlay.seriesId}`} className="animate-page-enter min-h-full">
+              <SeriesDetailView
+                series={activeSeries}
+                subscriptions={subscriptions}
+                onRefreshLibrary={() => scanLibrary(true)}
+                onCloudUploaded={() => void cloud.refresh()}
+                onSeriesRemoved={() => {
+                  handleSelectSection('library');
+                  void scanLibrary(true);
+                }}
+                onRequestSubscribe={(info) =>
+                  setSubscribeTarget({
+                    bangumiId: info.bangumiId,
+                    bangumiTitle: info.bangumiTitle,
+                    coverUrl: info.coverUrl,
+                    preferredSavePath: info.preferredSavePath,
+                    detectedMaxEpisode: info.detectedMaxEpisode,
+                    existing: info.existing,
+                  })
+                }
+              />
+            </div>
+          )}
+
+          {visitedSections.has('discover') && (
+            <div
+              className={
+                overlay.kind === 'none' && activeSection === 'discover' ? 'min-h-full' : 'hidden'
               }
-              onRequestSubscribe={(detail, subgroup, existing, preferredLanguageFilter) =>
-                setSubscribeTarget({
-                  bangumiId: detail.id,
-                  bangumiTitle: detail.title,
-                  coverUrl: detail.coverUrl,
-                  detail,
-                  subgroup,
-                  existing,
-                  preferredLanguageFilter,
-                })
+            >
+              <DiscoverPage
+                schedule={schedule}
+                loading={scheduleLoading}
+                error={scheduleError}
+                selectedSeason={selectedSeason}
+                onSelectSeason={(year, season) => void loadSchedule(year, season)}
+                onRefresh={() =>
+                  void loadSchedule(selectedSeason?.year, selectedSeason?.season, true)
+                }
+                onOpenBangumi={(card) => handleOpenBangumiCard(card)}
+              />
+            </div>
+          )}
+
+          {visitedSections.has('search') && (
+            <div
+              className={
+                overlay.kind === 'none' && activeSection === 'search' ? 'min-h-full' : 'hidden'
               }
-              onOpenRssFeed={(rssUrl) => {
-                setCustomRssUrl(rssUrl);
-                setActiveSection('latest');
-                setOverlay({ kind: 'none' });
-                scrollTop();
-              }}
-            />
-          ) : overlay.kind === 'series' && activeSeries ? (
-            <SeriesDetailView
-              series={activeSeries}
-              subscriptions={subscriptions}
-              onRefreshLibrary={() => scanLibrary(true)}
-              onCloudUploaded={() => void cloud.refresh()}
-              onSeriesRemoved={() => {
-                setOverlay({ kind: 'none' });
-                setActiveSection('library');
-                void scanLibrary(true);
-              }}
-              onRequestSubscribe={(info) =>
-                setSubscribeTarget({
-                  bangumiId: info.bangumiId,
-                  bangumiTitle: info.bangumiTitle,
-                  coverUrl: info.coverUrl,
-                  preferredSavePath: info.preferredSavePath,
-                  detectedMaxEpisode: info.detectedMaxEpisode,
-                  existing: info.existing,
-                })
-              }
-            />
-          ) : activeSection === 'discover' ? (
-            <DiscoverPage
-              schedule={schedule}
-              loading={scheduleLoading}
-              error={scheduleError}
-              selectedSeason={selectedSeason}
-              onSelectSeason={(year, season) => void loadSchedule(year, season)}
-              onRefresh={() => void loadSchedule(selectedSeason?.year, selectedSeason?.season)}
-              onOpenBangumi={(card) => handleOpenBangumiCard(card)}
-            />
-          ) : activeSection === 'search' ? (
-            <SearchResultsView
-              query={activeSearchQuery}
-              result={searchResult}
-              loading={searchLoading}
-              error={searchError}
-              onSearch={(q) => void handleSearchSubmit(q)}
-              onOpenBangumi={(card) => handleOpenBangumiCard(card, true)}
-              onRequestDownload={(release) =>
-                setDownloadModal({
-                  targets: [
-                    {
+            >
+              <SearchResultsView
+                query={activeSearchQuery}
+                result={searchResult}
+                loading={searchLoading}
+                error={searchError}
+                onSearch={(q) => void handleSearchSubmit(q)}
+                onOpenBangumi={(card) => handleOpenBangumiCard(card, true)}
+                onRequestDownload={(release) =>
+                  setDownloadModal({
+                    targets: [
+                      {
+                        release,
+                        bangumiId: release.bangumiId,
+                        bangumiTitle: release.bangumiTitle,
+                      },
+                    ],
+                  })
+                }
+                onRequestBatchDownload={(releases, onDoneClear) =>
+                  setDownloadModal({
+                    targets: releases.map((release) => ({
                       release,
                       bangumiId: release.bangumiId,
                       bangumiTitle: release.bangumiTitle,
-                    },
-                  ],
-                })
+                    })),
+                    onSuccessClear: onDoneClear,
+                  })
+                }
+              />
+            </div>
+          )}
+
+          {visitedSections.has('latest') && (
+            <div
+              className={
+                overlay.kind === 'none' && activeSection === 'latest' ? 'min-h-full' : 'hidden'
               }
-              onRequestBatchDownload={(releases, onDoneClear) =>
-                setDownloadModal({
-                  targets: releases.map((release) => ({
-                    release,
-                    bangumiId: release.bangumiId,
-                    bangumiTitle: release.bangumiTitle,
-                  })),
-                  onSuccessClear: onDoneClear,
-                })
-              }
-            />
-          ) : activeSection === 'latest' ? (
-            <LatestRssPage
-              initialRssUrl={customRssUrl}
-              onOpenBangumiDetail={handleOpenBangumiId}
-              onRequestDownload={(release) =>
-                setDownloadModal({
-                  targets: [
-                    {
+            >
+              <LatestRssPage
+                initialRssUrl={customRssUrl}
+                onOpenBangumiDetail={handleOpenBangumiId}
+                onRequestDownload={(release) =>
+                  setDownloadModal({
+                    targets: [
+                      {
+                        release,
+                        bangumiId: release.bangumiId,
+                        bangumiTitle: release.bangumiTitle,
+                      },
+                    ],
+                  })
+                }
+                onRequestBatchDownload={(releases, onDoneClear) =>
+                  setDownloadModal({
+                    targets: releases.map((release) => ({
                       release,
                       bangumiId: release.bangumiId,
                       bangumiTitle: release.bangumiTitle,
-                    },
-                  ],
-                })
+                    })),
+                    onSuccessClear: onDoneClear,
+                  })
+                }
+              />
+            </div>
+          )}
+
+          {visitedSections.has('library') && (
+            <div
+              className={
+                overlay.kind === 'none' && activeSection === 'library' ? 'min-h-full' : 'hidden'
               }
-              onRequestBatchDownload={(releases, onDoneClear) =>
-                setDownloadModal({
-                  targets: releases.map((release) => ({
-                    release,
-                    bangumiId: release.bangumiId,
-                    bangumiTitle: release.bangumiTitle,
-                  })),
-                  onSuccessClear: onDoneClear,
-                })
-              }
-            />
-          ) : activeSection === 'subscriptions' ? (
+            >
+              <LibraryPage
+                seriesList={librarySeries}
+                scanning={libraryScanning}
+                hiddenCount={hiddenLibraryCount}
+                onScan={() => void scanLibrary(false)}
+                onRefreshLibrary={() => scanLibrary(true)}
+                onCloudUploaded={() => void cloud.refresh()}
+                onRestoreHidden={handleRestoreHidden}
+                onOpenSeries={(series) => {
+                  setOverlay({ kind: 'series', seriesId: series.seriesId });
+                  syncScrollForTransition(`series:${series.seriesId}`, true);
+                }}
+                onOpenSettings={() => handleSelectSection('settings')}
+                onRequestSubscribe={(series) => {
+                  if (!series.bangumiId) return;
+                  const maxEp = series.episodes.reduce(
+                    (max, ep) => Math.max(max, ep.episodeNumber ?? 0),
+                    0
+                  );
+                  setSubscribeTarget({
+                    bangumiId: series.bangumiId,
+                    bangumiTitle: series.title,
+                    coverUrl: series.coverUrl,
+                    preferredSavePath: series.folderPath,
+                    detectedMaxEpisode: maxEp > 0 ? maxEp : series.totalEpisodes,
+                    existing:
+                      subscriptions.find((s) => s.bangumiId === series.bangumiId) || null,
+                  });
+                }}
+              />
+            </div>
+          )}
+
+          {overlay.kind === 'none' && activeSection === 'subscriptions' && (
             <SubscriptionsPage
               subscriptions={subscriptions}
               settings={settings}
@@ -612,7 +732,7 @@ const MikanVaultShell: React.FC = () => {
                   initialTitle: title,
                   initialCoverUrl: coverUrl,
                 });
-                scrollTop();
+                syncScrollForTransition(`bangumi:${id}`, true);
               }}
               onUpdateInterval={async (minutes) => {
                 const updated = await api.settingsUpdate({
@@ -625,7 +745,9 @@ const MikanVaultShell: React.FC = () => {
                 });
               }}
             />
-          ) : activeSection === 'downloads' ? (
+          )}
+
+          {overlay.kind === 'none' && activeSection === 'downloads' && (
             <DownloadsPage
               status={qb.status}
               torrents={qb.torrents}
@@ -642,7 +764,9 @@ const MikanVaultShell: React.FC = () => {
               onOpenSettings={() => handleSelectSection('settings')}
               onOpenCloudPage={() => handleSelectSection('cloud')}
             />
-          ) : activeSection === 'cloud' ? (
+          )}
+
+          {overlay.kind === 'none' && activeSection === 'cloud' && (
             <CloudUploadPage
               status={cloud.status}
               jobs={cloud.jobs}
@@ -658,38 +782,9 @@ const MikanVaultShell: React.FC = () => {
               onRefreshLibrary={() => scanLibrary(true)}
               onOpenSettings={() => handleSelectSection('settings')}
             />
-          ) : activeSection === 'library' ? (
-            <LibraryPage
-              seriesList={librarySeries}
-              scanning={libraryScanning}
-              hiddenCount={hiddenLibraryCount}
-              onScan={() => void scanLibrary(false)}
-              onRefreshLibrary={() => scanLibrary(true)}
-              onCloudUploaded={() => void cloud.refresh()}
-              onRestoreHidden={handleRestoreHidden}
-              onOpenSeries={(series) => {
-                setOverlay({ kind: 'series', seriesId: series.seriesId });
-                scrollTop();
-              }}
-              onOpenSettings={() => handleSelectSection('settings')}
-              onRequestSubscribe={(series) => {
-                if (!series.bangumiId) return;
-                const maxEp = series.episodes.reduce(
-                  (max, ep) => Math.max(max, ep.episodeNumber ?? 0),
-                  0
-                );
-                setSubscribeTarget({
-                  bangumiId: series.bangumiId,
-                  bangumiTitle: series.title,
-                  coverUrl: series.coverUrl,
-                  preferredSavePath: series.folderPath,
-                  detectedMaxEpisode: maxEp > 0 ? maxEp : series.totalEpisodes,
-                  existing:
-                    subscriptions.find((s) => s.bangumiId === series.bangumiId) || null,
-                });
-              }}
-            />
-          ) : (
+          )}
+
+          {overlay.kind === 'none' && activeSection === 'settings' && (
             <SettingsPage
               settings={settings}
               onSettingsUpdated={setSettings}
@@ -701,7 +796,6 @@ const MikanVaultShell: React.FC = () => {
               onChangeThemeMode={theme.setMode}
             />
           )}
-          </div>
         </main>
 
         {showScrollTop && (

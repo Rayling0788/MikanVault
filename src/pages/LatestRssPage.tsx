@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Link2,
   Rss,
@@ -21,6 +21,10 @@ import {
   matchesSubtitleLanguage,
 } from '@shared/subtitleLanguage';
 import { api } from '@/lib/api';
+import {
+  getCachedRssFeed,
+  setCachedRssFeed,
+} from '@/lib/mikanClientCache';
 import { ReleaseRow } from '@/components/ReleaseRow';
 import { BatchActionBar } from '@/components/BatchActionBar';
 import { useToast } from '@/hooks/useToast';
@@ -47,15 +51,29 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
+  const deferredKeyword = useDeferredValue(keyword);
   const [languageFilter, setLanguageFilter] = useState<SubtitleLanguageFilter>('all');
   const [lastFetched, setLastFetched] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(60);
 
-  const loadFeed = async (targetRss?: string) => {
+  const loadFeed = async (targetRss?: string, forceRefresh = false) => {
+    const cacheKey = targetRss?.trim() || '__default__';
+    if (!forceRefresh) {
+      const cached = getCachedRssFeed(cacheKey);
+      if (cached) {
+        setReleases(cached);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     try {
       const list = await api.getRssFeed(targetRss);
-      setReleases(Array.isArray(list) ? list : []);
+      const safe = Array.isArray(list) ? list : [];
+      setCachedRssFeed(cacheKey, safe);
+      setReleases(safe);
       setLastFetched(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : '拉取 RSS 列表失败');
@@ -134,6 +152,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
     setUrlInput('');
     setActiveRssUrl(undefined);
     setLanguageFilter('all');
+    setVisibleCount(60);
     void loadFeed(undefined);
   };
 
@@ -152,7 +171,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
     (availableLanguages.length === 1 && unclassifiedLanguageCount > 0);
 
   const filteredReleases = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
+    const q = deferredKeyword.trim().toLowerCase();
     return releases.filter((r) => {
       if (!matchesSubtitleLanguage(r.title, languageFilter)) return false;
       if (!q) return true;
@@ -162,7 +181,11 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
         (r.bangumiTitle && r.bangumiTitle.toLowerCase().includes(q))
       );
     });
-  }, [releases, keyword, languageFilter]);
+  }, [releases, deferredKeyword, languageFilter]);
+
+  useEffect(() => {
+    setVisibleCount(60);
+  }, [activeRssUrl, deferredKeyword, languageFilter]);
 
   const selection = useReleaseSelection(filteredReleases);
 
@@ -174,7 +197,6 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
     >
       {/* Smart Paste Mikan URL / Custom RSS Bar */}
       <section className="card-elevated relative overflow-hidden rounded-2xl p-5">
-        <div className="pointer-events-none absolute -top-20 -right-12 h-48 w-48 rounded-full bg-[#FF7A2F]/10 blur-3xl" />
         <div className="relative space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -268,7 +290,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => void loadFeed(activeRssUrl)}
+            onClick={() => void loadFeed(activeRssUrl, true)}
             disabled={loading}
             className="btn-ghost-dark inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-[12.5px] font-medium"
           >
@@ -330,7 +352,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
           <p className="mt-1 text-[13px] text-slate-400">{error}</p>
           <button
             type="button"
-            onClick={() => void loadFeed(activeRssUrl)}
+            onClick={() => void loadFeed(activeRssUrl, true)}
             className="btn-mikan mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[13px]"
           >
             <RefreshCw className="h-4 w-4" />
@@ -343,7 +365,7 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
         </div>
       ) : (
         <div className="space-y-2.5">
-          {filteredReleases.map((rel) => (
+          {filteredReleases.slice(0, visibleCount).map((rel) => (
             <ReleaseRow
               key={rel.id}
               release={rel}
@@ -354,6 +376,24 @@ export const LatestRssPage: React.FC<LatestRssPageProps> = ({
               onOpenBangumi={(bid) => onOpenBangumiDetail(bid)}
             />
           ))}
+          {filteredReleases.length > visibleCount && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((prev) => prev + 60)}
+                className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+              >
+                加载更多资源（剩余 {filteredReleases.length - visibleCount} 条）
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibleCount(filteredReleases.length)}
+                className="btn-ghost-dark inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[12.5px] font-medium"
+              >
+                显示全部
+              </button>
+            </div>
+          )}
         </div>
       )}
 

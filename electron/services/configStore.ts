@@ -64,6 +64,14 @@ let atomicWriteSeq = 0;
 
 const DRIVE_MOUNT_CACHE_TTL_MS = 15_000;
 const MAX_DOWNLOADS_META_ENTRIES = 400;
+const ensuredDirs = new Set<string>();
+
+function ensureDirOnce(dir: string): void {
+  if (!ensuredDirs.has(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    ensuredDirs.add(dir);
+  }
+}
 
 function getFileSignature(filePath: string): string | null {
   try {
@@ -106,6 +114,7 @@ export function setDataDirForTesting(dir: string | null): void {
   cachedMetadata = null;
   cachedMetadataSig = null;
   cachedDriveMount = null;
+  ensuredDirs.clear();
 }
 
 export function invalidateGoogleDriveMountCache(): void {
@@ -114,13 +123,13 @@ export function invalidateGoogleDriveMountCache(): void {
 
 export function getDataDir(): string {
   if (customDataDir) {
-    fs.mkdirSync(customDataDir, { recursive: true });
+    ensureDirOnce(customDataDir);
     return customDataDir;
   }
   const envDataDir = process.env.MIKANVAULT_DATA_DIR?.trim();
   if (envDataDir) {
     const resolved = path.resolve(envDataDir);
-    fs.mkdirSync(resolved, { recursive: true });
+    ensureDirOnce(resolved);
     return resolved;
   }
   const electronApp = getElectronApp();
@@ -134,13 +143,13 @@ export function getDataDir(): string {
   } else {
     baseDir = getDefaultStandaloneDataDir();
   }
-  fs.mkdirSync(baseDir, { recursive: true });
+  ensureDirOnce(baseDir);
   return baseDir;
 }
 
 export function getImageCacheDir(): string {
   const dir = path.join(getDataDir(), 'image-cache');
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirOnce(dir);
   return dir;
 }
 
@@ -311,7 +320,7 @@ function getMetadataFilePath(): string {
 
 function writeJsonAtomic(filePath: string, data: unknown): void {
   const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirOnce(dir);
   const payload = JSON.stringify(data, null, 2);
   atomicWriteSeq = (atomicWriteSeq + 1) % 1_000_000;
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${atomicWriteSeq}.tmp`;
@@ -530,13 +539,12 @@ export function recordDownloadMeta(entry: Omit<DownloadMetaRecord, 'addedAt'>): 
   saveMetadata(store);
 }
 
-export function findDownloadMetaForTorrent(
+export function findDownloadMetaInStore(
+  store: MetadataStore,
   hash: string,
   name: string,
   savePath: string,
 ): { bangumiId?: string; bangumiTitle?: string; coverUrl?: string } | null {
-  const store = getMetadata();
-
   const byHash = store.downloadsMap[`hash:${hash.toLowerCase()}`];
   if (byHash) {
     return {
@@ -569,6 +577,14 @@ export function findDownloadMetaForTorrent(
   }
 
   return null;
+}
+
+export function findDownloadMetaForTorrent(
+  hash: string,
+  name: string,
+  savePath: string,
+): { bangumiId?: string; bangumiTitle?: string; coverUrl?: string } | null {
+  return findDownloadMetaInStore(getMetadata(), hash, name, savePath);
 }
 
 export function getSeriesMeta(folderPath: string): SeriesMetaRecord | undefined {

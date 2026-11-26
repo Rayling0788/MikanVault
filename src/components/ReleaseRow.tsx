@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Download, ExternalLink, Clock, HardDrive, Check, Film, Layers } from 'lucide-react';
 import type { MikanRelease } from '@shared/types';
 import {
@@ -36,26 +36,28 @@ export const ReleaseRow: React.FC<ReleaseRowProps> = React.memo(({
   onDownload,
   onOpenBangumi,
 }) => {
-  const normalizedSubgroup = (release.subgroup || '').trim().toLowerCase();
-  const epNum = parseEpisodeNumberFromTitle(release.title);
-  const isBatchCollection =
-    epNum === undefined &&
-    /(合集|全集|complete|batch|\b0?1[-~～_]\d{2,3}\b)/i.test(release.title);
-  const langCategory = classifySubtitleLanguage(release.title);
-  const langLabel =
-    langCategory !== 'unknown' ? getSubtitleLanguageLabel(langCategory) : null;
-
-  const tags = extractReleaseTags(release.title, release.tags).filter((tag) => {
-    const clean = tag.trim();
-    if (!clean) return false;
-    if (normalizedSubgroup && clean.toLowerCase() === normalizedSubgroup) return false;
-    if (langLabel && REDUNDANT_LANG_TAG_REGEX.test(clean)) return false;
-    return true;
-  });
+  const { epNum, isBatchCollection, langLabel, tags } = useMemo(() => {
+    const normalizedSubgroup = (release.subgroup || '').trim().toLowerCase();
+    const parsedEp = parseEpisodeNumberFromTitle(release.title);
+    const batch =
+      parsedEp === undefined &&
+      /(合集|全集|complete|batch|\b0?1[-~～_]\d{2,3}\b)/i.test(release.title);
+    const langCategory = classifySubtitleLanguage(release.title);
+    const label =
+      langCategory !== 'unknown' ? getSubtitleLanguageLabel(langCategory) : null;
+    const filteredTags = extractReleaseTags(release.title, release.tags).filter((tag) => {
+      const clean = tag.trim();
+      if (!clean) return false;
+      if (normalizedSubgroup && clean.toLowerCase() === normalizedSubgroup) return false;
+      if (label && REDUNDANT_LANG_TAG_REGEX.test(clean)) return false;
+      return true;
+    });
+    return { epNum: parsedEp, isBatchCollection: batch, langLabel: label, tags: filteredTags };
+  }, [release.subgroup, release.title, release.tags]);
 
   return (
     <div
-      className={`release-row-item group flex flex-col gap-3 rounded-xl border px-4 py-3 transition-all duration-150 sm:flex-row sm:items-center sm:justify-between ${
+      className={`release-row-item group flex flex-col gap-3 rounded-xl border px-4 py-3 transition-colors duration-150 sm:flex-row sm:items-center sm:justify-between ${
         selected
           ? 'border-[#FF7A2F]/50 bg-[#FF7A2F]/[0.075] shadow-[inset_0_1px_0_rgba(255,122,47,0.16)]'
           : 'border-white/[0.07] bg-[#12151C]/92 hover:border-white/[0.14] hover:bg-[#171B24]'

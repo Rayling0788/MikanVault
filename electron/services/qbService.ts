@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type {
@@ -15,7 +16,8 @@ import type {
   QbTorrentItem,
 } from '../../src/shared/types';
 import {
-  findDownloadMetaForTorrent,
+  findDownloadMetaInStore,
+  getMetadata,
   getSettings,
   recordDownloadMeta,
 } from './configStore';
@@ -50,13 +52,32 @@ const sidCache = new Map<string, string>();
 const inFlightLogins = new Map<string, Promise<string | undefined>>();
 let cachedQbProcess: { running: boolean; expiresAt: number } | null = null;
 let inFlightProcessCheck: Promise<boolean> | null = null;
+let cachedExeCheck: { exePath: string; exists: boolean; expiresAt: number } | null = null;
 const QB_PROCESS_CACHE_TTL_MS = 10_000;
+const QB_EXE_CACHE_TTL_MS = 30_000;
 
 export function clearQbSessionCache(): void {
   sidCache.clear();
   inFlightLogins.clear();
   cachedQbProcess = null;
   inFlightProcessCheck = null;
+  cachedExeCheck = null;
+}
+
+function checkExeExists(exePath: string, force = false): boolean {
+  if (!exePath) return false;
+  const now = Date.now();
+  if (
+    !force &&
+    cachedExeCheck &&
+    cachedExeCheck.exePath === exePath &&
+    cachedExeCheck.expiresAt > now
+  ) {
+    return cachedExeCheck.exists;
+  }
+  const exists = fs.existsSync(exePath);
+  cachedExeCheck = { exePath, exists, expiresAt: now + QB_EXE_CACHE_TTL_MS };
+  return exists;
 }
 
 export function sanitizeFolderName(name: string): string {
@@ -314,7 +335,7 @@ export async function testConnection(
   fetchFn?: FetchLike,
 ): Promise<QbConnectionStatus> {
   const config = resolveAuthConfig(override);
-  const exeExists = Boolean(config.qbExePath && fs.existsSync(config.qbExePath));
+  const exeExists = checkExeExists(config.qbExePath, Boolean(override));
 
   try {
     // When testing with explicit override, force fresh login so new credentials are verified
@@ -450,7 +471,7 @@ export async function launchQbittorrent(): Promise<QbLaunchResult> {
 
 function extractHashFromRequest(req: AddDownloadRequest): string | undefined {
   if (req.magnetUrl) {
-    const m = req.magnetUrl.match(/btih:([a-fA-F0-9]{40})/i);
+    const m = req.magnetUrl.match(/btih:([a-fA-F0-9]{40}|[A-Z2-7]{32})/i);
     if (m) return m[1].toLowerCase();
   }
   if (req.torrentUrl) {
@@ -505,7 +526,7 @@ export async function addDownload(
       : rootDir;
 
   try {
-    fs.mkdirSync(savePath, { recursive: true });
+    await fsp.mkdir(savePath, { recursive: true });
   } catch {
     // Let qBittorrent create directory if needed
   }
@@ -680,8 +701,9 @@ export async function getTorrents(fetchFn?: FetchLike): Promise<QbTorrentItem[]>
     const rawList = (await res.json()) as RawQbTorrent[];
     if (!Array.isArray(rawList)) return [];
 
+    const metaStore = getMetadata();
     return rawList.map((item) => {
-      const meta = findDownloadMetaForTorrent(item.hash, item.name, item.save_path);
+      const meta = findDownloadMetaInStore(metaStore, item.hash, item.name, item.save_path);
       return {
         hash: item.hash,
         name: item.name,

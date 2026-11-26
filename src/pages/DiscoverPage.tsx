@@ -175,12 +175,11 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 src={heroBg.src}
                 alt=""
                 aria-hidden="true"
-                className="h-full w-full scale-125 object-cover opacity-42 blur-2xl saturate-150 transition-opacity duration-500"
+                className="h-full w-full scale-110 object-cover opacity-25 blur-md saturate-125 transition-opacity duration-300"
               />
             )}
             <div className="hero-scrim-h absolute inset-0" />
             <div className="hero-scrim-v absolute inset-0" />
-            <div className="pointer-events-none absolute -top-24 -left-16 h-80 w-80 rounded-full bg-[#FF7A2F]/18 blur-2xl" />
           </div>
 
           <div className="relative flex min-h-[296px] flex-col justify-between gap-6 p-6 sm:flex-row sm:items-center md:px-8 md:py-7">
@@ -259,7 +258,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                           onClick={() => setSpotlightIndex(idx)}
                           title={cand.title}
                           aria-label={`切换焦点番剧 ${cand.title}`}
-                          className={`group relative h-12 w-9 shrink-0 overflow-hidden rounded-lg border transition-all duration-200 ${
+                          className={`group relative h-12 w-9 shrink-0 overflow-hidden rounded-lg border transition-[transform,opacity,border-color] duration-150 ${
                             active
                               ? 'scale-105 border-[#FF7A2F] ring-2 ring-[#FF7A2F]/40'
                               : 'border-white/[0.14] opacity-60 hover:opacity-95'
@@ -296,13 +295,12 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               )}
             </div>
 
-            {/* Right Sharp Floating 3:4 Poster with Ambient Glow */}
+            {/* Right Sharp Floating 3:4 Poster */}
             <div className="relative hidden shrink-0 sm:block">
-              <div className="pointer-events-none absolute -inset-4 rounded-3xl bg-[#FF7A2F]/22 opacity-60 blur-2xl" />
               <button
                 type="button"
                 onClick={() => onOpenBangumi(activeHero)}
-                className="group relative overflow-hidden rounded-2xl border border-white/[0.2] shadow-[0_24px_54px_rgba(0,0,0,0.9)] transition duration-300 hover:scale-[1.03] hover:border-[#FF7A2F]/65"
+                className="group relative overflow-hidden rounded-2xl border border-white/[0.2] shadow-[0_20px_44px_rgba(0,0,0,0.65)] transition-transform duration-200 hover:scale-[1.03] hover:border-[#FF7A2F]/65"
               >
                 <PosterImage
                   key={activeHero.id}
@@ -447,7 +445,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 </div>
 
                 {/* Hover Bottom Frosted Quick-Inspect Pill */}
-                <div className="pointer-events-none absolute inset-x-3 bottom-3 flex translate-y-1.5 justify-center opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+                <div className="pointer-events-none absolute inset-x-3 bottom-3 flex translate-y-1.5 justify-center opacity-0 transition-[transform,opacity] duration-150 group-hover:translate-y-0 group-hover:opacity-100">
                   <span className="poster-hover-pill inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold">
                     查看资源
                     <ArrowRight className="h-3 w-3 text-[#FF7A2F]" />

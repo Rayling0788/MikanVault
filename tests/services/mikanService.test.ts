@@ -451,4 +451,36 @@ describe('mikanService', () => {
       expect(expanded[0].id).toBe('2222222222222222222222222222222222222222');
     });
   });
+
+  describe('proxyImage cache poisoning guards', () => {
+    it('rejects and does not cache HTTP 200 text/html responses or empty bodies', async () => {
+      let attempt = 0;
+      const imageUrl = 'https://mikanani.kas.pub/images/Bangumi/202611/test-cover.jpg';
+      const mockFetch: FetchLike = vi.fn(async () => {
+        attempt += 1;
+        if (attempt === 1) {
+          return new Response('<html>Cloudflare challenge</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+        }
+        if (attempt === 2) {
+          return new Response(new Uint8Array(0), {
+            status: 200,
+            headers: { 'Content-Type': 'image/jpeg' },
+          });
+        }
+        return new Response(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
+        });
+      });
+
+      expect(await proxyImage(imageUrl, mockFetch)).toBe('');
+      expect(await proxyImage(imageUrl, mockFetch)).toBe('');
+      const okDataUrl = await proxyImage(imageUrl, mockFetch);
+      expect(okDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+      expect(attempt).toBe(3);
+    });
+  });
 });
