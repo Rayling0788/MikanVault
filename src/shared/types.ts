@@ -252,6 +252,7 @@ export interface QbTorrentItem {
   size: number;
   /** bytes */
   downloaded?: number;
+  amountLeft?: number;
   /** bytes/sec */
   dlspeed: number;
   /** bytes/sec */
@@ -489,6 +490,8 @@ export interface CloudTransferJob {
   seriesId?: string;
   sourceFilePaths?: string[];
   cancelling?: boolean;
+  workerPid?: number;
+  finalizing?: boolean;
   torrentHash?: string;
   torrentName: string;
   bangumiId?: string;

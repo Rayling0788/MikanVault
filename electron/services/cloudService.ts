@@ -21,12 +21,12 @@ import {
   invalidateGoogleDriveMountCache,
   normalizePathKey,
   recordDownloadMeta,
-  saveCloudTransferJobs,
+  updateCloudTransferJobs,
   setSeriesMeta,
   setWatchedRecord,
   upsertCloudTransferJob,
 } from './configStore';
-import { controlTorrent, getTorrents, sanitizeFolderName } from './qbService';
+import { controlTorrent, getTorrents, normalizeTorrentHash, sanitizeFolderName } from './qbService';
 
 export interface CloudQueueDeps {
   getTorrentsFn?: () => Promise<QbTorrentItem[]>;
@@ -36,9 +36,11 @@ export interface CloudQueueDeps {
 let cloudWatcherTimer: ReturnType<typeof setInterval> | null = null;
 let isProcessingQueue = false;
 const liveJobProgress = new Map<string, Partial<CloudTransferJob>>();
-const cancelledJobIds = new Set<string>();
 const activeRunningJobIds = new Set<string>();
 let cachedCloudStatus: { key: string; value: CloudDriveStatus; expiresAt: number } | null = null;
+const completedTorrentStates = new Set([
+  'uploading', 'stalledUP', 'queuedUP', 'pausedUP', 'stoppedUP', 'forcedUP',
+]);
 const CLOUD_STATUS_CACHE_TTL_MS = 10_000;
 
 export function invalidateCloudStatusCache(): void {
@@ -156,87 +158,82 @@ export interface EnqueueCloudJobInput {
 }
 
 export function enqueueCloudTransferJob(input: EnqueueCloudJobInput): CloudTransferJob {
-  const now = Date.now();
-  const jobs = getCloudTransferJobs();
-
-  if (input.torrentHash) {
-    const existing = jobs.find(
-      (j) =>
-        j.torrentHash &&
-        j.torrentHash.toLowerCase() === input.torrentHash!.toLowerCase() &&
-        (j.status === 'queued' || j.status === 'copying'),
+  return updateCloudTransferJobs((jobs) => {
+    const now = Date.now();
+    const torrentHash = input.torrentHash && normalizeTorrentHash(input.torrentHash);
+    const existing = torrentHash && jobs.find((job) =>
+      job.torrentHash && normalizeTorrentHash(job.torrentHash) === torrentHash &&
+      (job.status === 'queued' || job.status === 'copying'),
     );
     if (existing) {
-      const updated: CloudTransferJob = {
-        ...existing,
-        cloudTargetDir: input.cloudTargetDir,
-        deleteLocalAfterMove: input.deleteLocalAfterMove ?? existing.deleteLocalAfterMove,
-        updatedAt: now,
-      };
-      upsertCloudTransferJob(updated);
-      return updated;
+      if (existing.status === 'copying') return { result: existing, changed: false };
+      existing.cloudTargetDir = input.cloudTargetDir;
+      existing.deleteLocalAfterMove = input.deleteLocalAfterMove ?? existing.deleteLocalAfterMove;
+      existing.updatedAt = now;
+      return { result: existing };
     }
+
+    const job: CloudTransferJob = {
+      ...input,
+      id: crypto.randomUUID(),
+      source: 'download',
+      torrentHash,
+      deleteLocalAfterMove: input.deleteLocalAfterMove ?? true,
+      status: 'queued',
+      progress: 0,
+      transferredBytes: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    jobs.unshift(job);
+    return { result: job };
+  });
+}
+
+function hasLiveWorker(job: CloudTransferJob): boolean {
+  const pid = job.workerPid;
+  if (!pid || pid === process.pid) return activeRunningJobIds.has(job.id);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
   }
-
-  const job: CloudTransferJob = {
-    id: crypto.randomUUID(),
-    source: 'download',
-    torrentHash: input.torrentHash,
-    torrentName: input.torrentName,
-    bangumiId: input.bangumiId,
-    bangumiTitle: input.bangumiTitle,
-    coverUrl: input.coverUrl,
-    subgroup: input.subgroup,
-    localSavePath: input.localSavePath,
-    cloudTargetDir: input.cloudTargetDir,
-    deleteLocalAfterMove: input.deleteLocalAfterMove ?? true,
-    status: 'queued',
-    progress: 0,
-    transferredBytes: 0,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  upsertCloudTransferJob(job);
-  return job;
 }
 
 export function recoverStaleCloudJobs(minStaleAgeMs = 0): number {
-  const jobs = getCloudTransferJobs();
-  const now = Date.now();
-  let recovered = 0;
-  const updated = jobs.map((job) => {
-    if (
-      job.status === 'copying' &&
-      !activeRunningJobIds.has(job.id) &&
-      now - (job.updatedAt || job.createdAt || 0) >= minStaleAgeMs
-    ) {
+  return updateCloudTransferJobs((jobs) => {
+    const now = Date.now();
+    let recovered = 0;
+    for (const job of jobs) {
+      if (job.status !== 'copying' || hasLiveWorker(job) ||
+          now - (job.updatedAt || job.createdAt || 0) < minStaleAgeMs) continue;
       recovered += 1;
       liveJobProgress.delete(job.id);
-      cancelledJobIds.delete(job.id);
-      return {
-        ...job,
-        status: 'failed' as const,
+      const cancelled = job.cancelling;
+      Object.assign(job, {
+        status: cancelled ? 'cancelled' : 'failed',
+        workerPid: undefined,
+        finalizing: undefined,
         cancelling: false,
         speedBytesPerSec: 0,
         etaSeconds: 0,
         currentFileName: undefined,
-        error: '上次应用关闭导致传输中断，请点击「重新上传」继续（已传完的文件会自动跳过）',
+        error: cancelled
+          ? '已取消上传（已保留本地文件）'
+          : '上次应用关闭导致传输中断，请点击「重新上传」继续（内容相同的文件会自动跳过）',
         updatedAt: now,
-      };
+      });
     }
-    return job;
+    return { result: recovered, changed: recovered > 0 };
   });
-  if (recovered > 0) {
-    saveCloudTransferJobs(updated);
-  }
-  return recovered;
 }
 
 export function listCloudJobs(): CloudTransferJob[] {
   const jobs = getCloudTransferJobs();
   // Recover any stale copying jobs only when an inactive copying record exists
-  if (jobs.some((j) => j.status === 'copying' && !activeRunningJobIds.has(j.id))) {
+  if (jobs.some((j) => j.status === 'copying' && !hasLiveWorker(j))) {
     recoverStaleCloudJobs(90_000);
   }
   return getCloudTransferJobs()
@@ -244,7 +241,7 @@ export function listCloudJobs(): CloudTransferJob[] {
       if (job.status === 'copying') {
         const live = liveJobProgress.get(job.id);
         if (live) {
-          return { ...job, ...live };
+          return { ...job, ...live, cancelling: job.cancelling };
         }
       }
       return job;
@@ -253,81 +250,113 @@ export function listCloudJobs(): CloudTransferJob[] {
 }
 
 export function clearFinishedCloudJobs(): ActionResult {
-  const active = getCloudTransferJobs().filter(
-    (job) => job.status === 'queued' || job.status === 'copying',
-  );
-  saveCloudTransferJobs(active);
-  return { ok: true };
+  return updateCloudTransferJobs((jobs) => {
+    for (let index = jobs.length - 1; index >= 0; index -= 1) {
+      if (jobs[index].status !== 'queued' && jobs[index].status !== 'copying') {
+        jobs.splice(index, 1);
+      }
+    }
+    return { result: { ok: true } };
+  });
 }
 
 export function removeCloudJob(jobId: string): ActionResult {
-  const jobs = getCloudTransferJobs();
-  const target = jobs.find((j) => j.id === jobId);
-  if (!target) {
-    return { ok: false, error: '找不到该云盘上传任务' };
-  }
-  if (target.status === 'copying' && activeRunningJobIds.has(jobId)) {
-    return { ok: false, error: '正在复制传输的任务不能移除，请先取消上传' };
-  }
-  saveCloudTransferJobs(jobs.filter((j) => j.id !== jobId));
-  liveJobProgress.delete(jobId);
-  cancelledJobIds.delete(jobId);
-  return { ok: true };
+  return updateCloudTransferJobs<ActionResult>((jobs) => {
+    const index = jobs.findIndex((job) => job.id === jobId);
+    if (index < 0) {
+      return { result: { ok: false, error: '找不到该云盘上传任务' }, changed: false };
+    }
+    if (jobs[index].status === 'copying' && hasLiveWorker(jobs[index])) {
+      return { result: { ok: false, error: '正在复制传输的任务不能移除，请先取消上传' }, changed: false };
+    }
+    jobs.splice(index, 1);
+    liveJobProgress.delete(jobId);
+    return { result: { ok: true } };
+  });
 }
 
 export function cancelCloudJob(jobId: string): ActionResult {
-  const jobs = getCloudTransferJobs();
-  const target = jobs.find((j) => j.id === jobId);
-  if (!target) {
-    return { ok: false, error: '找不到指定的云盘上传任务' };
-  }
-  if (target.status === 'queued') {
-    upsertCloudTransferJob({
-      ...target,
-      status: 'cancelled',
-      cancelling: false,
-      speedBytesPerSec: 0,
-      etaSeconds: 0,
-      error: '已取消上传（已保留本地文件）',
-      updatedAt: Date.now(),
-    });
-    return { ok: true };
-  }
-  if (target.status === 'copying') {
-    if (!activeRunningJobIds.has(jobId)) {
-      liveJobProgress.delete(jobId);
-      cancelledJobIds.delete(jobId);
-      upsertCloudTransferJob({
-        ...target,
+  return updateCloudTransferJobs<ActionResult>((jobs) => {
+    const target = jobs.find((job) => job.id === jobId);
+    if (!target || (target.status !== 'queued' && target.status !== 'copying')) {
+      return { result: { ok: false, error: '找不到可取消的云盘上传任务' }, changed: false };
+    }
+    if (target.status === 'copying' && hasLiveWorker(target)) {
+      if (target.finalizing) {
+        return { result: { ok: false, error: '上传已完成，正在收尾' }, changed: false };
+      }
+      target.cancelling = true;
+    } else {
+      Object.assign(target, {
         status: 'cancelled',
+        workerPid: undefined,
+        finalizing: undefined,
         cancelling: false,
         speedBytesPerSec: 0,
         etaSeconds: 0,
         currentFileName: undefined,
         error: '已取消上传（已保留本地文件）',
-        updatedAt: Date.now(),
       });
-      return { ok: true };
     }
-    cancelledJobIds.add(jobId);
-    const existingLive = liveJobProgress.get(jobId) || {};
-    liveJobProgress.set(jobId, {
-      ...existingLive,
-      cancelling: true,
-      updatedAt: Date.now(),
-    });
-    return { ok: true };
-  }
-  return { ok: false, error: '当前任务状态不支持取消' };
+    target.updatedAt = Date.now();
+    return { result: { ok: true } };
+  });
+}
+
+function isJobCancelled(jobId: string): boolean {
+  return getCloudTransferJobs().some((job) => job.id === jobId && job.cancelling);
+}
+
+function startFinalizing(jobId: string): void {
+  const confirmed = updateCloudTransferJobs((jobs) => {
+    const job = jobs.find((item) => item.id === jobId);
+    if (job?.status !== 'copying' || job.workerPid !== process.pid || job.cancelling) {
+      return { result: false, changed: false };
+    }
+    job.finalizing = true;
+    job.updatedAt = Date.now();
+    return { result: true };
+  });
+  if (!confirmed) throw new JobCancelledError();
+}
+
+function saveJobProgress(jobId: string, progress: Partial<CloudTransferJob>): void {
+  updateCloudTransferJobs((jobs) => {
+    const job = jobs.find((item) => item.id === jobId);
+    if (job?.status !== 'copying' || job.workerPid !== process.pid) {
+      return { result: undefined, changed: false };
+    }
+    Object.assign(job, progress, { updatedAt: Date.now() });
+    return { result: undefined };
+  });
+}
+
+function pathsOverlap(first: string, second: string): boolean {
+  const a = normalizePathKey(first);
+  const b = normalizePathKey(second);
+  const aPrefix = a.endsWith(path.sep) ? a : a + path.sep;
+  const bPrefix = b.endsWith(path.sep) ? b : b + path.sep;
+  return a === b || a.startsWith(bPrefix) || b.startsWith(aPrefix);
+}
+
+function hasTransferConflict(jobs: CloudTransferJob[], candidate: CloudTransferJob): boolean {
+  return jobs.some((job) => {
+    if (job.status !== 'copying' || !hasLiveWorker(job)) return false;
+    if (pathsOverlap(job.cloudTargetDir, candidate.cloudTargetDir)) return true;
+    return (job.sourceFilePaths ?? []).some((file) =>
+      (candidate.sourceFilePaths ?? []).some((other) => pathsOverlap(file, other)),
+    );
+  });
 }
 
 async function computePathStats(
   targetPath: string,
 ): Promise<{ totalBytes: number; totalFiles: number }> {
-  const stat = await fsp.stat(targetPath);
-  if (!stat.isDirectory()) {
+  const stat = await fsp.lstat(targetPath);
+  if (stat.isFile()) {
     return { totalBytes: stat.size, totalFiles: 1 };
   }
+  if (!stat.isDirectory()) throw new Error('不支持的源文件类型: ' + targetPath);
   const entries = await fsp.readdir(targetPath, { withFileTypes: true });
   let totalBytes = 0;
   let totalFiles = 0;
@@ -377,7 +406,7 @@ function createJobProgressReporter(
   };
 
   return {
-    isCancelled: () => cancelledJobIds.has(jobId),
+    isCancelled: () => isJobCancelled(jobId),
     onFileStart: (fileName: string) => {
       publish(0, fileName);
     },
@@ -404,6 +433,53 @@ export interface CopyProgressCallbacks {
   onFileProgress?: (inFlightBytes: number, fileName: string) => void;
   onFileVerified?: (fileBytes: number, fileName: string) => void;
   copiedDestPaths?: string[];
+  verifiedFiles?: VerifiedFile[];
+}
+
+interface VerifiedFile {
+  source: string;
+  destination: string;
+  sourceStat: fs.Stats;
+  destinationStat: fs.Stats;
+}
+
+function sameFileVersion(first: fs.Stats, second: fs.Stats): boolean {
+  return second.isFile() && first.dev === second.dev && first.ino === second.ino &&
+    first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
+}
+
+async function checkVerifiedFiles(files: VerifiedFile[]): Promise<void> {
+  for (const file of files) {
+    const [source, destination] = await Promise.all([
+      fsp.lstat(file.source), fsp.lstat(file.destination),
+    ]);
+    if (!sameFileVersion(file.sourceStat, source) ||
+        !sameFileVersion(file.destinationStat, destination)) {
+      throw new Error('文件在校验后发生变化: ' + file.source);
+    }
+  }
+}
+
+async function removeVerifiedSources(files: VerifiedFile[]): Promise<void> {
+  await checkVerifiedFiles(files);
+  for (const file of files) {
+    await fsp.unlink(file.source);
+  }
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+async function statIfPresent(filePath: string): Promise<fs.Stats | undefined> {
+  try {
+    return await fsp.lstat(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return undefined;
+  }
 }
 
 export async function copyPathCrossDrive(
@@ -411,90 +487,79 @@ export async function copyPathCrossDrive(
   destPath: string,
   callbacks?: CopyProgressCallbacks,
 ): Promise<{ copiedFiles: number; totalBytes: number }> {
-  if (callbacks?.isCancelled?.()) {
-    throw new JobCancelledError();
-  }
+  if (callbacks?.isCancelled?.()) throw new JobCancelledError();
 
-  const srcStat = await fsp.stat(srcPath);
+  const srcStat = await fsp.lstat(srcPath);
+  const destStat = await statIfPresent(destPath);
   if (srcStat.isDirectory()) {
+    if (destStat && !destStat.isDirectory()) throw new Error('云盘存在同名文件: ' + destPath);
     await fsp.mkdir(destPath, { recursive: true });
-    const entries = await fsp.readdir(srcPath, { withFileTypes: true });
     let copiedFiles = 0;
     let totalBytes = 0;
-    for (const entry of entries) {
-      const childSrc = path.join(srcPath, entry.name);
-      const childDest = path.join(destPath, entry.name);
-      const res = await copyPathCrossDrive(childSrc, childDest, callbacks);
-      copiedFiles += res.copiedFiles;
-      totalBytes += res.totalBytes;
+    for (const name of await fsp.readdir(srcPath)) {
+      const result = await copyPathCrossDrive(
+        path.join(srcPath, name), path.join(destPath, name), callbacks,
+      );
+      copiedFiles += result.copiedFiles;
+      totalBytes += result.totalBytes;
     }
     return { copiedFiles, totalBytes };
   }
+  if (!srcStat.isFile()) throw new Error('不支持的源文件类型: ' + srcPath);
 
   const fileName = path.basename(destPath);
   callbacks?.onFileStart?.(fileName);
-  await fsp.mkdir(path.dirname(destPath), { recursive: true });
-
-  // Poll destination file size read-only while standard OS fsp.copyFile runs
-  let statInFlight = false;
-  const pollTimer = setInterval(() => {
-    if (statInFlight) return;
-    statInFlight = true;
-    void fsp
-      .stat(destPath)
-      .then((st) => {
-        callbacks?.onFileProgress?.(Math.min(srcStat.size, st.size), fileName);
-      })
-      .catch(() => {})
-      .finally(() => {
-        statInFlight = false;
-      });
-  }, 450);
-
+  let created = false;
   try {
-    await fsp.copyFile(srcPath, destPath);
-  } finally {
-    clearInterval(pollTimer);
-  }
-  callbacks?.copiedDestPaths?.push(destPath);
+    if (!destStat) {
+      await fsp.mkdir(path.dirname(destPath), { recursive: true });
+      let statInFlight = false;
+      let copying = true;
+      const pollTimer = setInterval(() => {
+        if (statInFlight) return;
+        statInFlight = true;
+        void fsp.stat(destPath).then((stat) => {
+          if (copying) callbacks?.onFileProgress?.(Math.min(srcStat.size, stat.size), fileName);
+        }).catch(() => {}).finally(() => {
+          statInFlight = false;
+        });
+      }, 450);
+      try {
+        // Exclusive creation preserves an existing file even if it appears after the initial stat.
+        await fsp.copyFile(srcPath, destPath, fs.constants.COPYFILE_EXCL);
+        created = true;
+      } finally {
+        copying = false;
+        clearInterval(pollTimer);
+      }
+    }
 
-  if (callbacks?.isCancelled?.()) {
-    throw new JobCancelledError();
+    const copiedStat = await fsp.lstat(destPath);
+    if (!copiedStat.isFile() || copiedStat.size !== srcStat.size) {
+      throw new Error('云盘文件冲突或校验失败: ' + fileName);
+    }
+    const [sourceHash, destHash] = await Promise.all([hashFile(srcPath), hashFile(destPath)]);
+    const [sourceAfter, destAfter] = await Promise.all([fsp.lstat(srcPath), fsp.lstat(destPath)]);
+    if (sourceHash !== destHash || !sameFileVersion(srcStat, sourceAfter) ||
+        !sameFileVersion(copiedStat, destAfter)) {
+      throw new Error('云盘文件冲突或校验失败: ' + fileName);
+    }
+    if (callbacks?.isCancelled?.()) throw new JobCancelledError();
+    if (created) callbacks?.copiedDestPaths?.push(destPath);
+    callbacks?.verifiedFiles?.push({
+      source: srcPath, destination: destPath, sourceStat: sourceAfter, destinationStat: destAfter,
+    });
+    callbacks?.onFileVerified?.(srcStat.size, fileName);
+    return { copiedFiles: 1, totalBytes: srcStat.size };
+  } catch (error) {
+    if (created) await fsp.rm(destPath, { force: true }).catch(() => {});
+    throw error;
   }
-
-  const destStat = await fsp.stat(destPath);
-  if (destStat.size !== srcStat.size) {
-    throw new Error(`云盘校验失败: ${fileName} 大小不一致 (${destStat.size} != ${srcStat.size})`);
-  }
-  callbacks?.onFileVerified?.(destStat.size, fileName);
-  return {
-    copiedFiles: 1,
-    totalBytes: destStat.size,
-  };
 }
 
-async function cleanupCancelledCloudDest(
-  copiedDestPaths: string[],
-  targetDir?: string,
-): Promise<void> {
+async function cleanupCancelledCloudDest(copiedDestPaths: string[]): Promise<void> {
   for (const destFile of copiedDestPaths) {
-    try {
-      if (fs.existsSync(destFile)) {
-        await removeWithRetry(destFile, 2);
-      }
-    } catch {
-      // Best-effort cleanup of cancelled partial destination files
-    }
-  }
-  if (targetDir && fs.existsSync(targetDir)) {
-    try {
-      const entries = await fsp.readdir(targetDir);
-      if (entries.length === 0) {
-        await fsp.rmdir(targetDir);
-      }
-    } catch {
-      // Ignore if non-empty or already existed
-    }
+    await fsp.rm(destFile, { force: true }).catch(() => {});
   }
 }
 
@@ -503,22 +568,20 @@ function findMatchingTorrent(
   torrents: QbTorrentItem[],
 ): QbTorrentItem | undefined {
   if (job.torrentHash) {
-    const byHash = torrents.find(
-      (t) => t.hash.toLowerCase() === job.torrentHash!.toLowerCase(),
-    );
-    if (byHash) return byHash;
+    const hash = normalizeTorrentHash(job.torrentHash);
+    return torrents.find((torrent) => normalizeTorrentHash(torrent.hash) === hash);
   }
 
-  const jobSaveKey = normalizePathKey(job.localSavePath);
-  return torrents.find((t) => {
-    const sameSave = normalizePathKey(t.savePath) === jobSaveKey;
-    if (!sameSave) return false;
-    return (
-      t.name === job.torrentName ||
-      t.name.includes(job.torrentName) ||
-      job.torrentName.includes(t.name)
-    );
-  });
+  const savePath = normalizePathKey(job.localSavePath);
+  const matches = torrents.filter((torrent) =>
+    normalizePathKey(torrent.savePath) === savePath && torrent.name === job.torrentName,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function canOffload(torrent: QbTorrentItem): boolean {
+  return torrent.progress === 1 && (torrent.amountLeft ?? 0) === 0 &&
+    completedTorrentStates.has(torrent.state);
 }
 
 function resolveTorrentSourcePath(torrent: QbTorrentItem, fallbackSavePath: string): string {
@@ -532,18 +595,25 @@ function resolveTorrentSourcePath(torrent: QbTorrentItem, fallbackSavePath: stri
   throw new Error(`找不到本地已完成文件: ${torrent.contentPath || candidate}`);
 }
 
-async function removeWithRetry(targetPath: string, retries = 3): Promise<void> {
-  let lastErr: unknown;
-  for (let i = 0; i < retries; i++) {
-    try {
-      await fsp.rm(targetPath, { recursive: true, force: true });
-      return;
-    } catch (err) {
-      lastErr = err;
-      await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+async function removeEmptySourceDirs(root: string, files: VerifiedFile[]): Promise<void> {
+  const directories = new Set<string>();
+  for (const file of files) {
+    let directory = path.dirname(file.source);
+    while (directory === root || directory.startsWith(root + path.sep)) {
+      directories.add(directory);
+      if (directory === root) break;
+      directory = path.dirname(directory);
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  for (const directory of [...directories].sort((a, b) => b.length - a.length)) {
+    try {
+      await fsp.rmdir(directory);
+    } catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code || '')) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function cleanupEmptyStagingDir(localSavePath: string): Promise<void> {
@@ -575,9 +645,9 @@ export async function processCloudTransferQueue(
   let failed = 0;
 
   try {
-    const allJobs = getCloudTransferJobs();
-    const candidates = allJobs.filter(
-      (job) => job.status === 'queued' || (retryFailed && job.status === 'failed'),
+    const candidates = getCloudTransferJobs().filter(
+      (job) => job.source !== 'library' &&
+        (job.status === 'queued' || (retryFailed && job.status === 'failed')),
     );
     if (candidates.length === 0) {
       return { processed: 0, moved: 0, failed: 0 };
@@ -587,22 +657,40 @@ export async function processCloudTransferQueue(
     const controlTorrentFn = deps.controlTorrentFn ?? controlTorrent;
     const torrents = await getTorrentsFn();
 
-    for (const job of candidates) {
-      const torrent = findMatchingTorrent(job, torrents);
-      if (!torrent || torrent.progress < 0.999) {
-        continue;
-      }
+    for (const candidate of candidates) {
+      const knownTorrent = findMatchingTorrent(candidate, torrents);
+      if (!knownTorrent || !canOffload(knownTorrent)) continue;
+      const claimed = updateCloudTransferJobs((jobs) => {
+        const current = jobs.find((item) => item.id === candidate.id);
+        if (!current || current.source === 'library' ||
+            (current.status !== 'queued' && !(retryFailed && current.status === 'failed'))) {
+          return { result: undefined, changed: false };
+        }
+        const torrent = findMatchingTorrent(current, torrents);
+        if (!torrent || !canOffload(torrent)) return { result: undefined, changed: false };
+        const sourceFilePaths = [
+          torrent.contentPath || path.join(torrent.savePath || current.localSavePath, torrent.name),
+        ];
+        if (hasTransferConflict(jobs, { ...current, sourceFilePaths })) {
+          return { result: undefined, changed: false };
+        }
+        Object.assign(current, {
+          sourceFilePaths,
+          status: 'copying',
+          torrentHash: torrent.hash,
+          workerPid: process.pid,
+          cancelling: false,
+          error: undefined,
+          finalizing: undefined,
+          updatedAt: Date.now(),
+        });
+        return { result: { job: current, torrent } };
+      });
+      if (!claimed) continue;
+      const { job, torrent } = claimed;
 
       processed += 1;
       activeRunningJobIds.add(job.id);
-      upsertCloudTransferJob({
-        ...job,
-        status: 'copying',
-        torrentHash: torrent.hash,
-        error: undefined,
-        updatedAt: Date.now(),
-      });
-
       const copiedDestPaths: string[] = [];
       try {
         if (!isPathOrParentAccessible(job.cloudTargetDir)) {
@@ -611,41 +699,41 @@ export async function processCloudTransferQueue(
 
         const srcPath = resolveTorrentSourcePath(torrent, job.localSavePath);
         const destPath = path.join(job.cloudTargetDir, path.basename(srcPath));
+        const [realSource, realTargetRoot] = await Promise.all([
+          fsp.realpath(srcPath),
+          fsp.mkdir(job.cloudTargetDir, { recursive: true }).then(() => fsp.realpath(job.cloudTargetDir)),
+        ]);
+        if (pathsOverlap(realSource, path.join(realTargetRoot, path.basename(srcPath)))) {
+          throw new Error('本地文件与云盘目标路径重叠');
+        }
         const stats = await computePathStats(srcPath);
-        let latestJob: CloudTransferJob = {
-          ...job,
-          source: 'download',
-          status: 'copying',
-          torrentHash: torrent.hash,
-          totalFiles: stats.totalFiles,
-          totalBytes: stats.totalBytes,
-          transferredBytes: 0,
-          progress: 0,
-          cancelling: false,
-          error: undefined,
-          updatedAt: Date.now(),
-        };
-        upsertCloudTransferJob(latestJob);
+        if (!stats.totalFiles) throw new Error('源目录中没有可转存的文件');
+        const verifiedFiles: VerifiedFile[] = [];
+        saveJobProgress(job.id, { ...stats, transferredBytes: 0, progress: 0 });
 
         const reporter = createJobProgressReporter(job.id, stats.totalBytes, (snap) => {
-          latestJob = {
-            ...latestJob,
-            copiedFiles: snap.copiedFiles,
-            transferredBytes: snap.transferredBytes,
-            progress: snap.progress,
-            currentFileName: snap.currentFileName,
-            updatedAt: Date.now(),
-          };
-          upsertCloudTransferJob(latestJob);
+          saveJobProgress(job.id, snap);
         });
         const { copiedFiles, totalBytes } = await copyPathCrossDrive(srcPath, destPath, {
           ...reporter,
           copiedDestPaths,
+          verifiedFiles,
         });
-
-        if (cancelledJobIds.has(job.id)) {
-          throw new JobCancelledError();
+        let warningNote: string | undefined;
+        if (job.deleteLocalAfterMove) {
+          await checkVerifiedFiles(verifiedFiles);
+          if (normalizePathKey(srcPath) === normalizePathKey(torrent.savePath || job.localSavePath)) {
+            warningNote = '已复制到云盘，已保留共享下载目录与 qB 任务';
+          } else {
+            const latest = (await getTorrentsFn()).find((item) => item.hash === torrent.hash);
+            if (!latest || !canOffload(latest) ||
+                normalizePathKey(resolveTorrentSourcePath(latest, job.localSavePath)) !== normalizePathKey(srcPath)) {
+              warningNote = '已复制到云盘，但 qB 任务状态或路径已变化，已保留本地文件';
+            }
+          }
         }
+
+        startFinalizing(job.id);
 
         // Preserve Mikan metadata on the destination cloud folder before cleanup
         recordDownloadMeta({
@@ -672,14 +760,14 @@ export async function processCloudTransferQueue(
           );
         }
 
-        let warningNote: string | undefined;
-        if (job.deleteLocalAfterMove) {
+        if (job.deleteLocalAfterMove && !warningNote) {
           const ctrlRes = await controlTorrentFn(torrent.hash, 'delete');
           if (!ctrlRes.ok) {
             warningNote = `已复制到云盘，但移除 qB 任务失败: ${ctrlRes.error || '未知错误'}`;
           } else {
             try {
-              await removeWithRetry(srcPath);
+              await removeVerifiedSources(verifiedFiles);
+              await removeEmptySourceDirs(path.resolve(srcPath), verifiedFiles);
               await cleanupEmptyStagingDir(job.localSavePath);
             } catch (rmErr) {
               warningNote = `已复制到云盘并移除任务，但清理本地文件失败: ${
@@ -690,13 +778,14 @@ export async function processCloudTransferQueue(
         }
 
         liveJobProgress.delete(job.id);
-        cancelledJobIds.delete(job.id);
         const now = Date.now();
         upsertCloudTransferJob({
           ...job,
           source: 'download',
           torrentHash: torrent.hash,
           status: 'completed',
+          workerPid: undefined,
+          finalizing: undefined,
           cancelling: false,
           progress: 1,
           transferredBytes: totalBytes,
@@ -714,11 +803,12 @@ export async function processCloudTransferQueue(
       } catch (err) {
         liveJobProgress.delete(job.id);
         if (err instanceof JobCancelledError) {
-          cancelledJobIds.delete(job.id);
-          await cleanupCancelledCloudDest(copiedDestPaths, job.cloudTargetDir);
+          await cleanupCancelledCloudDest(copiedDestPaths);
           upsertCloudTransferJob({
             ...job,
             status: 'cancelled',
+            workerPid: undefined,
+            finalizing: undefined,
             cancelling: false,
             speedBytesPerSec: 0,
             etaSeconds: 0,
@@ -731,6 +821,8 @@ export async function processCloudTransferQueue(
           upsertCloudTransferJob({
             ...job,
             status: 'failed',
+            workerPid: undefined,
+            finalizing: undefined,
             cancelling: false,
             speedBytesPerSec: 0,
             etaSeconds: 0,
@@ -745,8 +837,6 @@ export async function processCloudTransferQueue(
     }
 
     return { processed, moved, failed };
-  } catch {
-    return { processed, moved, failed };
   } finally {
     isProcessingQueue = false;
   }
@@ -754,9 +844,13 @@ export async function processCloudTransferQueue(
 
 export function startCloudTransferWatcher(intervalMs = 20_000): void {
   stopCloudTransferWatcher();
-  recoverStaleCloudJobs(0);
+  try {
+    recoverStaleCloudJobs(0);
+  } catch (error) {
+    console.error('恢复云盘任务失败', error);
+  }
   cloudWatcherTimer = setInterval(() => {
-    void processCloudTransferQueue();
+    void processCloudTransferQueue().catch((error) => console.error('云盘队列处理失败', error));
   }, intervalMs);
 }
 
@@ -777,75 +871,37 @@ async function runLibraryUploadJob(
 ): Promise<CloudUploadLibraryResult> {
   activeRunningJobIds.add(job.id);
   const copiedDestPaths: string[] = [];
-  let checkpointJob: CloudTransferJob = { ...job };
   try {
     let copiedFiles = 0;
     let totalBytes = 0;
-    const verifiedSrcFiles: string[] = [];
+    const verifiedFiles: VerifiedFile[] = [];
+    await fsp.mkdir(targetDir, { recursive: true });
+    const realTarget = await fsp.realpath(targetDir);
     const reporter = createJobProgressReporter(job.id, expectedTotalBytes, (snap) => {
-      checkpointJob = {
-        ...checkpointJob,
-        copiedFiles: snap.copiedFiles,
-        transferredBytes: snap.transferredBytes,
-        progress: snap.progress,
-        currentFileName: snap.currentFileName,
-        updatedAt: Date.now(),
-      };
-      upsertCloudTransferJob(checkpointJob);
+      saveJobProgress(job.id, snap);
     });
 
     for (const srcFile of cleanFilePaths) {
-      if (cancelledJobIds.has(job.id)) {
-        throw new JobCancelledError();
-      }
-      if (!fs.existsSync(srcFile)) {
-        throw new Error(`找不到本地文件: ${srcFile}`);
-      }
       const destFile = path.join(targetDir, path.basename(srcFile));
-      const srcKey = normalizePathKey(path.resolve(srcFile));
-      const destKey = normalizePathKey(path.resolve(destFile));
-      if (srcKey !== destKey) {
-        // Smart resume: skip copying if destination already exists with identical byte size
-        const srcStat = await fsp.stat(srcFile);
-        let alreadyVerified = false;
-        if (fs.existsSync(destFile)) {
-          try {
-            const destStat = await fsp.stat(destFile);
-            if (destStat.size === srcStat.size) {
-              alreadyVerified = true;
-              copiedFiles += 1;
-              totalBytes += destStat.size;
-              verifiedSrcFiles.push(srcFile);
-              reporter.onFileVerified(destStat.size, path.basename(destFile));
-            }
-          } catch {
-            // Re-copy cleanly if stat fails
-          }
-        }
-
-        if (!alreadyVerified) {
-          const res = await copyPathCrossDrive(srcFile, destFile, {
-            ...reporter,
-            copiedDestPaths,
-          });
-          copiedFiles += res.copiedFiles;
-          totalBytes += res.totalBytes;
-          verifiedSrcFiles.push(srcFile);
-        }
+      if (pathsOverlap(await fsp.realpath(srcFile), path.join(realTarget, path.basename(srcFile)))) {
+        throw new Error('本地文件与云盘目标路径重叠');
       }
-
-      if (cancelledJobIds.has(job.id)) {
-        throw new JobCancelledError();
-      }
-
-      const watchedRec = getWatchedRecord(srcFile);
-      if (watchedRec) {
-        setWatchedRecord(destFile, watchedRec.watched, watchedRec.lastPlayedAt);
-      }
+      const result = await copyPathCrossDrive(srcFile, destFile, {
+        ...reporter,
+        copiedDestPaths,
+        verifiedFiles,
+      });
+      copiedFiles += result.copiedFiles;
+      totalBytes += result.totalBytes;
     }
+    if (req.deleteLocal) await checkVerifiedFiles(verifiedFiles);
 
-    if (cancelledJobIds.has(job.id)) {
-      throw new JobCancelledError();
+    startFinalizing(job.id);
+    for (const file of verifiedFiles) {
+      const watchedRec = getWatchedRecord(file.source);
+      if (watchedRec) {
+        setWatchedRecord(file.destination, watchedRec.watched, watchedRec.lastPlayedAt);
+      }
     }
 
     // Preserve scraped metadata & cover on the cloud folder so LibraryPage displays it seamlessly
@@ -885,9 +941,7 @@ async function runLibraryUploadJob(
     let deletedLocal = false;
     if (req.deleteLocal) {
       try {
-        for (const srcFile of verifiedSrcFiles) {
-          await removeWithRetry(srcFile);
-        }
+        await removeVerifiedSources(verifiedFiles);
         if (req.kind === 'series' && req.folderPath) {
           const settings = getSettings();
           const resolvedFolder = path.resolve(req.folderPath);
@@ -918,11 +972,12 @@ async function runLibraryUploadJob(
     }
 
     liveJobProgress.delete(job.id);
-    cancelledJobIds.delete(job.id);
     const doneAt = Date.now();
     upsertCloudTransferJob({
       ...job,
       status: 'completed',
+      workerPid: undefined,
+      finalizing: undefined,
       cancelling: false,
       progress: 1,
       transferredBytes: totalBytes,
@@ -950,11 +1005,12 @@ async function runLibraryUploadJob(
   } catch (err) {
     liveJobProgress.delete(job.id);
     if (err instanceof JobCancelledError) {
-      cancelledJobIds.delete(job.id);
-      await cleanupCancelledCloudDest(copiedDestPaths, targetDir);
+        await cleanupCancelledCloudDest(copiedDestPaths);
       upsertCloudTransferJob({
         ...job,
         status: 'cancelled',
+        workerPid: undefined,
+        finalizing: undefined,
         cancelling: false,
         speedBytesPerSec: 0,
         etaSeconds: 0,
@@ -977,6 +1033,8 @@ async function runLibraryUploadJob(
     upsertCloudTransferJob({
       ...job,
       status: 'failed',
+      workerPid: undefined,
+      finalizing: undefined,
       cancelling: false,
       speedBytesPerSec: 0,
       etaSeconds: 0,
@@ -1026,46 +1084,37 @@ export async function uploadLibraryToCloud(
     };
   }
 
-  const cloudRootKey = normalizePathKey(path.resolve(cloudRootDir));
-  const allAlreadyInCloud = cleanFilePaths.every((fp) => {
-    const key = normalizePathKey(path.resolve(fp));
-    return key.startsWith(`${cloudRootKey}/`) || key.startsWith(`${cloudRootKey}\\`);
-  });
-  if (allAlreadyInCloud) {
-    return {
-      ok: false,
-      copiedFiles: 0,
-      totalBytes: 0,
-      deletedLocal: false,
-      error: '该番剧已在谷歌云盘目录中，无需重复上传',
-    };
-  }
-
   const targetDir = resolveCloudSeriesTargetDir(cloudRootDir, req.seriesTitle);
-  const targetDirKey = normalizePathKey(path.resolve(targetDir));
-  const requestedFilesSet = new Set(cleanFilePaths.map((p) => normalizePathKey(path.resolve(p))));
-  const duplicateActive = getCloudTransferJobs().some((j) => {
-    if (j.status !== 'copying' || !activeRunningJobIds.has(j.id)) return false;
-    if (normalizePathKey(path.resolve(j.cloudTargetDir)) !== targetDirKey) return false;
-    if (req.seriesId && j.seriesId === req.seriesId) return true;
-    return (j.sourceFilePaths || []).some((fp) =>
-      requestedFilesSet.has(normalizePathKey(path.resolve(fp))),
-    );
-  });
-  if (duplicateActive) {
-    return {
-      ok: false,
-      copiedFiles: 0,
-      totalBytes: 0,
-      deletedLocal: false,
-      error: '该番剧正在上传中，请等待当前任务完成',
-    };
+  let realCloudRoot: string;
+  try {
+    realCloudRoot = await fsp.realpath(cloudRootDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return { ok: false, copiedFiles: 0, totalBytes: 0, deletedLocal: false,
+        error: '谷歌云盘目录不可访问' };
+    }
+    realCloudRoot = path.resolve(cloudRootDir);
+  }
+  const destNames = new Set<string>();
+  for (const srcFile of cleanFilePaths) {
+    const destKey = normalizePathKey(path.join(targetDir, path.basename(srcFile)));
+    if (destNames.has(destKey)) {
+      return { ok: false, copiedFiles: 0, totalBytes: 0, deletedLocal: false,
+        error: '所选文件中存在同名文件: ' + path.basename(srcFile) };
+    }
+    destNames.add(destKey);
   }
 
   let expectedTotalBytes = 0;
   for (const srcFile of cleanFilePaths) {
     try {
-      const st = await fsp.stat(srcFile);
+      const st = await fsp.lstat(srcFile);
+      if (!st.isFile()) throw new Error('不支持的源文件类型');
+      const source = await fsp.realpath(srcFile);
+      if (pathsOverlap(source, realCloudRoot)) {
+        return { ok: false, copiedFiles: 0, totalBytes: 0, deletedLocal: false,
+          error: '请只选择云盘目录以外的本地文件' };
+      }
       expectedTotalBytes += st.size;
     } catch {
       return {
@@ -1096,6 +1145,7 @@ export async function uploadLibraryToCloud(
     cloudTargetDir: targetDir,
     deleteLocalAfterMove: req.deleteLocal,
     status: 'copying',
+    workerPid: process.pid,
     progress: 0,
     transferredBytes: 0,
     copiedFiles: 0,
@@ -1104,8 +1154,15 @@ export async function uploadLibraryToCloud(
     createdAt: now,
     updatedAt: now,
   };
-  upsertCloudTransferJob(job);
-  activeRunningJobIds.add(job.id);
+  const reserved = updateCloudTransferJobs((jobs) => {
+    if (hasTransferConflict(jobs, job)) return { result: false, changed: false };
+    jobs.unshift(job);
+    return { result: true };
+  });
+  if (!reserved) {
+    return { ok: false, copiedFiles: 0, totalBytes: 0, deletedLocal: false,
+      error: '该番剧正在上传中，请等待当前任务完成' };
+  }
 
   if (req.background) {
     void runLibraryUploadJob(
@@ -1115,7 +1172,7 @@ export async function uploadLibraryToCloud(
       cloudRootDir,
       targetDir,
       expectedTotalBytes,
-    );
+    ).catch((error) => console.error('后台云盘任务失败', error));
     return {
       ok: true,
       jobId: job.id,
@@ -1143,10 +1200,12 @@ export async function retryCloudJob(jobId: string): Promise<ActionResult> {
   if (!job) {
     return { ok: false, error: '找不到指定的云盘上传任务' };
   }
-  if (job.status === 'copying' && activeRunningJobIds.has(jobId)) {
+  if (job.status === 'completed') {
+    return { ok: false, error: '任务已完成，无需重试' };
+  }
+  if (job.status === 'copying' && hasLiveWorker(job)) {
     return { ok: false, error: '该任务正在上传中，无需重试' };
   }
-  cancelledJobIds.delete(jobId);
 
   if (job.source === 'library' && job.sourceFilePaths && job.sourceFilePaths.length > 0) {
     const startRes = await uploadLibraryToCloud({
@@ -1161,18 +1220,29 @@ export async function retryCloudJob(jobId: string): Promise<ActionResult> {
       background: true,
     });
     if (startRes.ok) {
-      saveCloudTransferJobs(getCloudTransferJobs().filter((j) => j.id !== jobId));
+      removeCloudJob(jobId);
       return { ok: true };
     }
     return { ok: false, error: startRes.error || '重试上传失败' };
   }
 
-  upsertCloudTransferJob({
-    ...job,
-    status: 'queued',
-    error: undefined,
-    updatedAt: Date.now(),
+  const requeued = updateCloudTransferJobs((jobs) => {
+    const current = jobs.find((item) => item.id === jobId);
+    if (!current || current.status === 'completed' ||
+        (current.status === 'copying' && hasLiveWorker(current))) {
+      return { result: false, changed: false };
+    }
+    Object.assign(current, {
+      status: 'queued',
+      workerPid: undefined,
+      finalizing: undefined,
+      cancelling: false,
+      error: undefined,
+      updatedAt: Date.now(),
+    });
+    return { result: true };
   });
-  void processCloudTransferQueue({}, true);
+  if (!requeued) return { ok: false, error: '当前任务状态不支持重试' };
+  void processCloudTransferQueue({}, true).catch((error) => console.error('云盘队列处理失败', error));
   return { ok: true };
 }

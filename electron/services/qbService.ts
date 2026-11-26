@@ -38,6 +38,7 @@ interface RawQbTorrent {
   progress: number;
   size: number;
   downloaded?: number;
+  amount_left?: number;
   dlspeed: number;
   upspeed: number;
   eta: number;
@@ -469,6 +470,25 @@ export async function launchQbittorrent(): Promise<QbLaunchResult> {
   }
 }
 
+export function normalizeTorrentHash(hash: string): string {
+  const normalized = hash.toLowerCase();
+  if (!/^[a-z2-7]{32}$/.test(normalized)) return normalized;
+
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (const character of normalized) {
+    value = (value << 5) | alphabet.indexOf(character);
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((value >> bits) & 255);
+    }
+  }
+  return Buffer.from(bytes).toString('hex');
+}
+
 function extractHashFromRequest(req: AddDownloadRequest): string | undefined {
   if (req.magnetUrl) {
     const m = req.magnetUrl.match(/btih:([a-fA-F0-9]{40}|[A-Z2-7]{32})/i);
@@ -711,6 +731,7 @@ export async function getTorrents(fetchFn?: FetchLike): Promise<QbTorrentItem[]>
         progress: typeof item.progress === 'number' ? item.progress : 0,
         size: typeof item.size === 'number' ? item.size : 0,
         downloaded: item.downloaded,
+        amountLeft: item.amount_left,
         dlspeed: typeof item.dlspeed === 'number' ? item.dlspeed : 0,
         upspeed: typeof item.upspeed === 'number' ? item.upspeed : 0,
         eta: typeof item.eta === 'number' ? item.eta : 8640000,
