@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ResolvedTheme, ThemeMode } from '@shared/types';
 import { api } from '@/lib/api';
 
-const THEME_STORAGE_KEY = 'mikanvault_theme';
+const THEME_STORAGE_KEY = 'mikanvault_theme_v2';
 
 function readStoredThemeMode(): ThemeMode {
   try {
@@ -13,14 +13,14 @@ function readStoredThemeMode(): ThemeMode {
   } catch {
     // Ignore storage access errors
   }
-  return 'dark';
+  return 'light';
 }
 
 function getSystemTheme(): ResolvedTheme {
   if (typeof window !== 'undefined' && window.matchMedia) {
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   }
-  return 'dark';
+  return 'light';
 }
 
 function resolveTheme(mode: ThemeMode): ResolvedTheme {
@@ -71,7 +71,7 @@ export function useTheme() {
 
   const cycleMode = useCallback(() => {
     setModeState((prev) =>
-      prev === 'dark' ? 'light' : prev === 'light' ? 'system' : 'dark',
+      prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light',
     );
   }, []);
 

@@ -140,15 +140,15 @@ function createMainWindow(): BrowserWindow {
     minHeight: 680,
     title: 'MikanVault',
     ...(windowIcon ? { icon: windowIcon } : {}),
-    backgroundColor: '#090B10',
+    backgroundColor: '#EEF3FA',
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     ...(isWin
       ? {
           titleBarOverlay: {
-            color: '#090B10',
-            symbolColor: '#94A3B8',
+            color: '#EEF3FA',
+            symbolColor: '#334155',
             height: 53,
           },
         }

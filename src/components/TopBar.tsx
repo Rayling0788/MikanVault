@@ -22,7 +22,7 @@ function getThemeLabel(mode: ThemeMode): string {
     case 'dark':
       return '暗夜影院';
     case 'light':
-      return '霜白浅色';
+      return '液态玻璃';
     case 'system':
       return '跟随系统';
   }
@@ -104,7 +104,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={onCycleTheme}
-          title={`当前主题：${themeLabel}（点击切换 暗夜 / 浅色 / 跟随系统）`}
+          title={`当前主题：${themeLabel}（点击切换 液态玻璃 / 暗夜 / 跟随系统）`}
           aria-label={`切换主题，当前 ${themeLabel}`}
           className="btn-ghost-dark inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium"
         >

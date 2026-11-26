@@ -63,7 +63,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
       ref={menuRef}
       role="menu"
       style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
-      className="fixed z-50 min-w-[202px] overflow-hidden rounded-xl border border-white/[0.11] bg-[#141821]/95 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.88)] backdrop-blur-xl"
+      className="glass-panel fixed z-50 min-w-[202px] overflow-hidden rounded-xl border border-white/[0.11] p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.88)]"
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item) => (

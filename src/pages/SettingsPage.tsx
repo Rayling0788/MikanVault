@@ -240,7 +240,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div>
                 <h3 className="text-[15px] font-semibold text-white">外观与主题</h3>
                 <p className="text-[12px] text-slate-400">
-                  支持暗夜影院与霜白浅色即时切换（当前生效：{resolvedTheme === 'light' ? '浅色' : '暗色'}）
+                  支持液态玻璃（浅色）与暗夜影院（深色）即时切换（当前生效：{resolvedTheme === 'light' ? '液态玻璃' : '暗夜影院'}）
                 </p>
               </div>
             </div>
@@ -250,6 +250,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             {(
               [
                 {
+                  id: 'light' as ThemeMode,
+                  title: '液态玻璃',
+                  desc: '通透液态玻璃与流光日光画布，轻盈折射质感',
+                  Icon: Sun,
+                  previewBg:
+                    'bg-gradient-to-br from-[#FFE8D6] via-[#EEF3FA] to-[#D6EEFF] border-white/80',
+                  previewCard: 'bg-white/70 border-white/90 shadow-sm',
+                },
+                {
                   id: 'dark' as ThemeMode,
                   title: '暗夜影院',
                   desc: '深邃黑曜石画布，沉浸式海报对比度',
@@ -258,20 +267,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   previewCard: 'bg-[#151A24] border-white/10',
                 },
                 {
-                  id: 'light' as ThemeMode,
-                  title: '霜白浅色',
-                  desc: '通透磨砂日光质感，日间阅读更轻松',
-                  Icon: Sun,
-                  previewBg: 'bg-[#F3F5FA] border-slate-300',
-                  previewCard: 'bg-white border-slate-200',
-                },
-                {
                   id: 'system' as ThemeMode,
                   title: '跟随系统',
                   desc: '自动匹配 Windows 深浅色外观设置',
                   Icon: Monitor,
-                  previewBg: 'bg-gradient-to-br from-[#090B10] via-[#1B2230] to-[#F3F5FA] border-white/20',
-                  previewCard: 'bg-white/20 border-white/25',
+                  previewBg: 'bg-gradient-to-br from-[#090B10] via-[#1B2230] to-[#E6F0FC] border-white/25',
+                  previewCard: 'bg-white/25 border-white/30',
                 },
               ] as const
             ).map(({ id, title, desc, Icon, previewBg, previewCard }) => {

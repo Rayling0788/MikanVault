@@ -383,7 +383,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.WINDOW_SET_THEME, (_event, theme: ResolvedTheme) => {
     const isLight = theme === 'light';
-    const bgColor = isLight ? '#F3F5FA' : '#090B10';
+    const bgColor = isLight ? '#EEF3FA' : '#090B10';
     for (const win of BrowserWindow.getAllWindows()) {
       if (win.isDestroyed()) continue;
       try {
@@ -395,7 +395,7 @@ export function registerIpcHandlers(): void {
         try {
           win.setTitleBarOverlay({
             color: bgColor,
-            symbolColor: isLight ? '#475569' : '#94A3B8',
+            symbolColor: isLight ? '#334155' : '#94A3B8',
             height: 53,
           });
         } catch {

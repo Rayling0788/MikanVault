@@ -25,7 +25,7 @@ export const BatchActionBar: React.FC<BatchActionBarProps> = ({
 
   return (
     <div className="pointer-events-none sticky bottom-4 z-30 flex justify-center px-4 pt-2">
-      <div className="pointer-events-auto animate-modal-enter flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.13] bg-[#12151C]/92 px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.88)] backdrop-blur-xl">
+      <div className="pointer-events-auto animate-modal-enter glass-panel flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.13] px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.88)]">
         <div className="flex items-center gap-2.5 pr-1">
           <span className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#FF7A2F]/35 bg-[#FF7A2F]/18 px-2.5 text-[12.5px] font-semibold text-[#FF9E4F] tabular-nums">
             <CheckSquare className="h-3.5 w-3.5" />
