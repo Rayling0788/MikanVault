@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 import type {
   AppSettings,
   CloudTransferJob,
@@ -65,6 +66,7 @@ let atomicWriteSeq = 0;
 const DRIVE_MOUNT_CACHE_TTL_MS = 15_000;
 const MAX_DOWNLOADS_META_ENTRIES = 400;
 const ensuredDirs = new Set<string>();
+const retryWait = new Int32Array(new SharedArrayBuffer(4));
 
 function ensureDirOnce(dir: string): void {
   if (!ensuredDirs.has(dir)) {
@@ -76,7 +78,7 @@ function ensureDirOnce(dir: string): void {
 function getFileSignature(filePath: string): string | null {
   try {
     const stat = fs.statSync(filePath);
-    return `${stat.mtimeMs}:${stat.size}`;
+    return `${stat.ino}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
   } catch {
     return null;
   }
@@ -326,16 +328,19 @@ function writeJsonAtomic(filePath: string, data: unknown): void {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${atomicWriteSeq}.tmp`;
   try {
     fs.writeFileSync(tmpPath, payload, 'utf-8');
-    fs.renameSync(tmpPath, filePath);
-  } catch {
-    try {
-      if (fs.existsSync(tmpPath)) {
-        fs.unlinkSync(tmpPath);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        fs.renameSync(tmpPath, filePath);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        // Windows can briefly deny replacement while another process is reading.
+        if (attempt >= 10 || !['EPERM', 'EACCES', 'EBUSY'].includes(code || '')) throw error;
+        Atomics.wait(retryWait, 0, 0, 10 * (attempt + 1));
       }
-    } catch {
-      // Ignore cleanup error
     }
-    fs.writeFileSync(filePath, payload, 'utf-8');
+  } finally {
+    fs.rmSync(tmpPath, { force: true });
   }
 }
 
@@ -389,7 +394,7 @@ export function getSettings(): AppSettings {
             ? raw.googleDriveIncludeInLibrary
             : defaults.googleDriveIncludeInLibrary,
       };
-      cachedSettingsSig = getFileSignature(filePath);
+      cachedSettingsSig = currentSig;
       return { ...cachedSettings, extraLibraryDirs: [...cachedSettings.extraLibraryDirs] };
     } catch {
       // Corrupted JSON; recover with defaults
@@ -437,8 +442,8 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   };
 
   const settingsPath = getSettingsFilePath();
-  cachedSettings = next;
   writeJsonAtomic(settingsPath, next);
+  cachedSettings = next;
   cachedSettingsSig = getFileSignature(settingsPath);
   return { ...next, extraLibraryDirs: [...next.extraLibraryDirs] };
 }
@@ -456,87 +461,118 @@ function emptyMetadata(): MetadataStore {
   };
 }
 
-export function getMetadata(): MetadataStore {
-  const filePath = getMetadataFilePath();
-  const currentSig = getFileSignature(filePath);
-  if (cachedMetadata && (currentSig === cachedMetadataSig || (currentSig === null && cachedMetadataSig === null))) {
-    return cachedMetadata;
+function readMetadata(filePath: string): MetadataStore {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyMetadata();
+    throw error;
   }
 
-  if (fs.existsSync(filePath)) {
+  const parsed = JSON.parse(raw) as Partial<MetadataStore>;
+  return {
+    downloadsMap:
+      parsed.downloadsMap && typeof parsed.downloadsMap === 'object' ? parsed.downloadsMap : {},
+    watchedMap:
+      parsed.watchedMap && typeof parsed.watchedMap === 'object' ? parsed.watchedMap : {},
+    seriesMetaMap:
+      parsed.seriesMetaMap && typeof parsed.seriesMetaMap === 'object' ? parsed.seriesMetaMap : {},
+    hiddenSeriesIds: Array.isArray(parsed.hiddenSeriesIds)
+      ? parsed.hiddenSeriesIds.filter((x): x is string => typeof x === 'string')
+      : [],
+    hiddenFilePaths: Array.isArray(parsed.hiddenFilePaths)
+      ? parsed.hiddenFilePaths.filter((x): x is string => typeof x === 'string')
+      : [],
+    subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
+    subscriptionLogs: Array.isArray(parsed.subscriptionLogs) ? parsed.subscriptionLogs : [],
+    cloudTransferJobs: Array.isArray(parsed.cloudTransferJobs) ? parsed.cloudTransferJobs : [],
+  };
+}
+
+export function getMetadata(): MetadataStore {
+  const filePath = getMetadataFilePath();
+  const signature = getFileSignature(filePath);
+  if (cachedMetadata && signature === cachedMetadataSig) return cachedMetadata;
+
+  try {
+    cachedMetadata = readMetadata(filePath);
+    cachedMetadataSig = signature;
+    return cachedMetadata;
+  } catch {
+    return cachedMetadata ?? emptyMetadata();
+  }
+}
+
+function mutateMetadata<T>(
+  mutate: (store: MetadataStore) => { result: T; changed?: boolean },
+): T {
+  const filePath = getMetadataFilePath();
+  const deadline = Date.now() + 5_000;
+  // The lock covers the complete read, mutation and atomic replacement.
+  let release: () => void;
+  for (;;) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<MetadataStore>;
-      cachedMetadata = {
-        downloadsMap:
-          parsed.downloadsMap && typeof parsed.downloadsMap === 'object' ? parsed.downloadsMap : {},
-        watchedMap:
-          parsed.watchedMap && typeof parsed.watchedMap === 'object' ? parsed.watchedMap : {},
-        seriesMetaMap:
-          parsed.seriesMetaMap && typeof parsed.seriesMetaMap === 'object' ? parsed.seriesMetaMap : {},
-        hiddenSeriesIds: Array.isArray(parsed.hiddenSeriesIds)
-          ? parsed.hiddenSeriesIds.filter((x): x is string => typeof x === 'string')
-          : [],
-        hiddenFilePaths: Array.isArray(parsed.hiddenFilePaths)
-          ? parsed.hiddenFilePaths.filter((x): x is string => typeof x === 'string')
-          : [],
-        subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
-        subscriptionLogs: Array.isArray(parsed.subscriptionLogs) ? parsed.subscriptionLogs : [],
-        cloudTransferJobs: Array.isArray(parsed.cloudTransferJobs) ? parsed.cloudTransferJobs : [],
-      };
-      cachedMetadataSig = getFileSignature(filePath);
-      return cachedMetadata;
-    } catch {
-      // Recover with empty store
+      release = lockfile.lockSync(filePath, { realpath: false, stale: 5_000 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ELOCKED' || Date.now() >= deadline) {
+        throw error;
+      }
+      Atomics.wait(retryWait, 0, 0, 10);
     }
   }
 
-  cachedMetadata = emptyMetadata();
-  cachedMetadataSig = currentSig;
-  return cachedMetadata;
-}
-
-function saveMetadata(store: MetadataStore): void {
-  const filePath = getMetadataFilePath();
-  cachedMetadata = store;
-  writeJsonAtomic(filePath, store);
-  cachedMetadataSig = getFileSignature(filePath);
+  try {
+    const store = readMetadata(filePath);
+    const { result, changed = true } = mutate(store);
+    if (changed) {
+      writeJsonAtomic(filePath, store);
+      cachedMetadata = store;
+      cachedMetadataSig = getFileSignature(filePath);
+    }
+    return result;
+  } finally {
+    release();
+  }
 }
 
 export function recordDownloadMeta(entry: Omit<DownloadMetaRecord, 'addedAt'>): void {
-  const store = getMetadata();
-  const now = Date.now();
-  const record: DownloadMetaRecord = {
-    ...entry,
-    addedAt: now,
-  };
-
-  if (entry.hash) {
-    store.downloadsMap[`hash:${entry.hash.toLowerCase()}`] = record;
-  }
-  const titleKey = `title:${entry.title.trim().toLowerCase()}`;
-  store.downloadsMap[titleKey] = record;
-
-  const dlKeys = Object.keys(store.downloadsMap);
-  if (dlKeys.length > MAX_DOWNLOADS_META_ENTRIES) {
-    const sorted = Object.entries(store.downloadsMap)
-      .sort((a, b) => (b[1].addedAt || 0) - (a[1].addedAt || 0))
-      .slice(0, MAX_DOWNLOADS_META_ENTRIES);
-    store.downloadsMap = Object.fromEntries(sorted);
-  }
-
-  if (entry.savePath && (entry.bangumiTitle || entry.coverUrl || entry.bangumiId)) {
-    const folderKey = normalizePathKey(entry.savePath);
-    const existing = store.seriesMetaMap[folderKey];
-    store.seriesMetaMap[folderKey] = {
-      folderPath: path.resolve(entry.savePath),
-      title: entry.bangumiTitle || existing?.title || path.basename(entry.savePath),
-      bangumiId: entry.bangumiId || existing?.bangumiId,
-      coverUrl: entry.coverUrl || existing?.coverUrl,
-      updatedAt: now,
+  mutateMetadata((store) => {
+    const now = Date.now();
+    const record: DownloadMetaRecord = {
+      ...entry,
+      addedAt: now,
     };
-  }
 
-  saveMetadata(store);
+    if (entry.hash) {
+      store.downloadsMap[`hash:${entry.hash.toLowerCase()}`] = record;
+    }
+    const titleKey = `title:${entry.title.trim().toLowerCase()}`;
+    store.downloadsMap[titleKey] = record;
+
+    const dlKeys = Object.keys(store.downloadsMap);
+    if (dlKeys.length > MAX_DOWNLOADS_META_ENTRIES) {
+      const sorted = Object.entries(store.downloadsMap)
+        .sort((a, b) => (b[1].addedAt || 0) - (a[1].addedAt || 0))
+        .slice(0, MAX_DOWNLOADS_META_ENTRIES);
+      store.downloadsMap = Object.fromEntries(sorted);
+    }
+
+    if (entry.savePath && (entry.bangumiTitle || entry.coverUrl || entry.bangumiId)) {
+      const folderKey = normalizePathKey(entry.savePath);
+      const existing = store.seriesMetaMap[folderKey];
+      store.seriesMetaMap[folderKey] = {
+        folderPath: path.resolve(entry.savePath),
+        title: entry.bangumiTitle || existing?.title || path.basename(entry.savePath),
+        bangumiId: entry.bangumiId || existing?.bangumiId,
+        coverUrl: entry.coverUrl || existing?.coverUrl,
+        updatedAt: now,
+      };
+    }
+
+    return { result: undefined };
+  });
 }
 
 export function findDownloadMetaInStore(
@@ -614,17 +650,17 @@ export function setWatchedRecord(
   watched: boolean,
   lastPlayedAt?: number,
 ): WatchedRecord {
-  const store = getMetadata();
-  const key = normalizePathKey(filePath);
-  const existing = store.watchedMap[key];
-  const record: WatchedRecord = {
-    watched,
-    lastPlayedAt: lastPlayedAt ?? existing?.lastPlayedAt,
-    updatedAt: Date.now(),
-  };
-  store.watchedMap[key] = record;
-  saveMetadata(store);
-  return record;
+  return mutateMetadata((store) => {
+    const key = normalizePathKey(filePath);
+    const existing = store.watchedMap[key];
+    const record: WatchedRecord = {
+      watched,
+      lastPlayedAt: lastPlayedAt ?? existing?.lastPlayedAt,
+      updatedAt: Date.now(),
+    };
+    store.watchedMap[key] = record;
+    return { result: record };
+  });
 }
 
 export function getSeriesMetaById(seriesId: string): SeriesMetaRecord | undefined {
@@ -637,52 +673,56 @@ export function setSeriesMeta(
   record: SeriesMetaRecord,
   alsoIndexFolderPath = false,
 ): void {
-  const store = getMetadata();
-  const normalizedRecord: SeriesMetaRecord = {
-    ...record,
-    seriesId,
-  };
-  store.seriesMetaMap[`series:${seriesId}`] = normalizedRecord;
-  if (alsoIndexFolderPath && record.folderPath) {
-    store.seriesMetaMap[normalizePathKey(record.folderPath)] = normalizedRecord;
-  }
-  saveMetadata(store);
+  mutateMetadata((store) => {
+    const normalizedRecord: SeriesMetaRecord = {
+      ...record,
+      seriesId,
+    };
+    store.seriesMetaMap[`series:${seriesId}`] = normalizedRecord;
+    if (alsoIndexFolderPath && record.folderPath) {
+      store.seriesMetaMap[normalizePathKey(record.folderPath)] = normalizedRecord;
+    }
+    return { result: undefined };
+  });
 }
 
 export function deleteSeriesMeta(seriesId: string, folderPath?: string): void {
-  const store = getMetadata();
-  delete store.seriesMetaMap[`series:${seriesId}`];
-  if (folderPath) {
-    const folderKey = normalizePathKey(folderPath);
-    const existing = store.seriesMetaMap[folderKey];
-    if (!existing?.seriesId || existing.seriesId === seriesId) {
-      delete store.seriesMetaMap[folderKey];
+  mutateMetadata((store) => {
+    delete store.seriesMetaMap[`series:${seriesId}`];
+    if (folderPath) {
+      const folderKey = normalizePathKey(folderPath);
+      const existing = store.seriesMetaMap[folderKey];
+      if (!existing?.seriesId || existing.seriesId === seriesId) {
+        delete store.seriesMetaMap[folderKey];
+      }
     }
-  }
-  saveMetadata(store);
+    return { result: undefined };
+  });
 }
 
 export function hideSeries(seriesId: string, filePaths: string[] = []): void {
-  const store = getMetadata();
-  if (!store.hiddenSeriesIds.includes(seriesId)) {
-    store.hiddenSeriesIds.push(seriesId);
-  }
-  for (const fp of filePaths) {
-    const key = normalizePathKey(fp);
-    if (!store.hiddenFilePaths.includes(key)) {
-      store.hiddenFilePaths.push(key);
+  mutateMetadata((store) => {
+    if (!store.hiddenSeriesIds.includes(seriesId)) {
+      store.hiddenSeriesIds.push(seriesId);
     }
-  }
-  saveMetadata(store);
+    for (const fp of filePaths) {
+      const key = normalizePathKey(fp);
+      if (!store.hiddenFilePaths.includes(key)) {
+        store.hiddenFilePaths.push(key);
+      }
+    }
+    return { result: undefined };
+  });
 }
 
 export function hideFilePath(filePath: string): void {
-  const store = getMetadata();
-  const key = normalizePathKey(filePath);
-  if (!store.hiddenFilePaths.includes(key)) {
-    store.hiddenFilePaths.push(key);
-  }
-  saveMetadata(store);
+  mutateMetadata((store) => {
+    const key = normalizePathKey(filePath);
+    if (!store.hiddenFilePaths.includes(key)) {
+      store.hiddenFilePaths.push(key);
+    }
+    return { result: undefined };
+  });
 }
 
 export function isSeriesHidden(seriesId: string): boolean {
@@ -701,10 +741,11 @@ export function getHiddenCount(): number {
 }
 
 export function restoreAllHidden(): void {
-  const store = getMetadata();
-  store.hiddenSeriesIds = [];
-  store.hiddenFilePaths = [];
-  saveMetadata(store);
+  mutateMetadata((store) => {
+    store.hiddenSeriesIds = [];
+    store.hiddenFilePaths = [];
+    return { result: undefined };
+  });
 }
 
 export function getLibraryMetadataSnapshot(): {
@@ -739,10 +780,16 @@ export function getSubscriptions(): SubscriptionItem[] {
   }));
 }
 
-export function saveSubscriptions(items: SubscriptionItem[]): void {
-  const store = getMetadata();
-  store.subscriptions = items;
-  saveMetadata(store);
+export function updateSubscriptions<T>(
+  update: (items: SubscriptionItem[]) => T,
+): T {
+  return mutateMetadata((store) => {
+    const items = store.subscriptions;
+    for (const item of items) {
+      if (!Array.isArray(item.downloadedReleaseIds)) item.downloadedReleaseIds = [];
+    }
+    return { result: update(items) };
+  });
 }
 
 export function getSubscriptionLogs(): SubscriptionLogEntry[] {
@@ -751,9 +798,10 @@ export function getSubscriptionLogs(): SubscriptionLogEntry[] {
 }
 
 export function appendSubscriptionLog(entry: SubscriptionLogEntry): void {
-  const store = getMetadata();
-  store.subscriptionLogs = [entry, ...store.subscriptionLogs].slice(0, 80);
-  saveMetadata(store);
+  mutateMetadata((store) => {
+    store.subscriptionLogs = [entry, ...store.subscriptionLogs].slice(0, 80);
+    return { result: undefined };
+  });
 }
 
 export function getCloudTransferJobs(): CloudTransferJob[] {
@@ -761,19 +809,31 @@ export function getCloudTransferJobs(): CloudTransferJob[] {
   return store.cloudTransferJobs.map((job) => ({ ...job }));
 }
 
-export function saveCloudTransferJobs(jobs: CloudTransferJob[]): void {
-  const store = getMetadata();
-  store.cloudTransferJobs = jobs.slice(0, 120);
-  saveMetadata(store);
+export function updateCloudTransferJobs<T>(
+  update: (jobs: CloudTransferJob[]) => { result: T; changed?: boolean },
+): T {
+  return mutateMetadata((store) => {
+    const outcome = update(store.cloudTransferJobs);
+    if (outcome.changed !== false) {
+      let historyCount = 0;
+      store.cloudTransferJobs = store.cloudTransferJobs.filter((job) => {
+        if (job.status === 'queued' || job.status === 'copying') return true;
+        historyCount += 1;
+        return historyCount <= 120;
+      });
+    }
+    return outcome;
+  });
 }
 
 export function upsertCloudTransferJob(job: CloudTransferJob): void {
-  const jobs = getCloudTransferJobs();
-  const idx = jobs.findIndex((item) => item.id === job.id);
-  if (idx >= 0) {
-    jobs[idx] = { ...job };
-  } else {
-    jobs.unshift({ ...job });
-  }
-  saveCloudTransferJobs(jobs);
+  updateCloudTransferJobs((jobs) => {
+    const idx = jobs.findIndex((item) => item.id === job.id);
+    if (idx >= 0) {
+      jobs[idx] = { ...job };
+    } else {
+      jobs.unshift({ ...job });
+    }
+    return { result: undefined };
+  });
 }

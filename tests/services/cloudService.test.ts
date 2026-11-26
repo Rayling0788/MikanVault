@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,7 @@ import {
   setSeriesMeta,
   setWatchedRecord,
   updateSettings,
+  updateCloudTransferJobs,
   upsertCloudTransferJob,
 } from '../../electron/services/configStore';
 import { scanLibrary } from '../../electron/services/libraryService';
@@ -200,6 +202,208 @@ describe('cloudService', () => {
 
     expect(summary).toEqual({ processed: 0, moved: 0, failed: 0 });
     expect(listCloudJobs()[0].status).toBe('queued');
+  });
+
+  it('requires a finished torrent and never falls back after a known hash misses', async () => {
+    const localVideo = path.join(localRoot, 'ep01.mkv');
+    fs.writeFileSync(localVideo, 'source contents');
+    const torrent = makeTorrent({ name: 'ep01.mkv', savePath: localRoot, contentPath: localVideo });
+    const job = enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: torrent.name,
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+    });
+    const control = vi.fn(async () => ({ ok: true }));
+    for (const changes of [
+      { progress: 0.9995 },
+      { amountLeft: 32 },
+      { state: 'checkingUP' },
+      { hash: '1'.repeat(40) },
+    ]) {
+      const result = await processCloudTransferQueue({
+        getTorrentsFn: async () => [{ ...torrent, ...changes }],
+        controlTorrentFn: control,
+      });
+      expect(result.processed).toBe(0);
+      expect(listCloudJobs().find((item) => item.id === job.id)?.status).toBe('queued');
+    }
+    expect(control).not.toHaveBeenCalled();
+    expect(fs.readFileSync(localVideo, 'utf8')).toBe('source contents');
+    expect(fs.readdirSync(cloudRoot)).toEqual([]);
+  });
+
+  it('matches older Base32 job hashes to qBittorrent hex hashes', async () => {
+    const name = 'ep01.mkv';
+    const localVideo = path.join(localRoot, name);
+    fs.writeFileSync(localVideo, 'source contents');
+    upsertCloudTransferJob({
+      id: 'base32-job',
+      source: 'download',
+      torrentHash: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+      torrentName: 'A different release title',
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+      deleteLocalAfterMove: false,
+      status: 'queued',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const result = await processCloudTransferQueue({
+      getTorrentsFn: async () => [makeTorrent({
+        hash: '00443214c74254b635cf84653a56d7c675be77df',
+        name,
+        savePath: localRoot,
+        contentPath: localVideo,
+      })],
+    });
+    expect(result.moved).toBe(1);
+    expect(fs.readFileSync(path.join(cloudRoot, name), 'utf8')).toBe('source contents');
+  });
+
+  it('keeps a queued job cancelled while qBittorrent is returning the torrent list', async () => {
+    const name = 'ep01.mkv';
+    const localVideo = path.join(localRoot, name);
+    fs.writeFileSync(localVideo, 'source contents');
+    const torrent = makeTorrent({ name, savePath: localRoot, contentPath: localVideo });
+    const job = enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: name,
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+    });
+    let returnTorrents!: (torrents: QbTorrentItem[]) => void;
+    const pending = new Promise<QbTorrentItem[]>((resolve) => { returnTorrents = resolve; });
+    const control = vi.fn(async () => ({ ok: true }));
+    const processing = processCloudTransferQueue({
+      getTorrentsFn: () => pending,
+      controlTorrentFn: control,
+    });
+
+    expect(cancelCloudJob(job.id).ok).toBe(true);
+    returnTorrents([torrent]);
+    expect((await processing).processed).toBe(0);
+    expect(control).not.toHaveBeenCalled();
+    expect(listCloudJobs().find((item) => item.id === job.id)?.status).toBe('cancelled');
+    expect(fs.readFileSync(localVideo, 'utf8')).toBe('source contents');
+    expect(fs.readdirSync(cloudRoot)).toEqual([]);
+  });
+
+  it('keeps both copies when an existing cloud file has the same size but different contents', async () => {
+    const localVideo = path.join(localRoot, 'ep01.mkv');
+    const targetDir = path.join(cloudRoot, 'Series');
+    const cloudVideo = path.join(targetDir, 'ep01.mkv');
+    fs.mkdirSync(targetDir);
+    fs.writeFileSync(localVideo, 'NEW!');
+    fs.writeFileSync(cloudVideo, 'OLD!');
+
+    const result = await uploadLibraryToCloud({
+      kind: 'episode', seriesId: 's1', seriesTitle: 'Series', folderPath: localRoot,
+      filePaths: [localVideo], deleteLocal: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.deletedLocal).toBe(false);
+    expect(fs.readFileSync(localVideo, 'utf8')).toBe('NEW!');
+    expect(fs.readFileSync(cloudVideo, 'utf8')).toBe('OLD!');
+  });
+
+  it('does not delete verified sources or pre-existing cloud files when an active job is cancelled', async () => {
+    const first = path.join(localRoot, 'ep01.mkv');
+    const second = path.join(localRoot, 'ep02.mkv');
+    const targetDir = path.join(cloudRoot, 'Series');
+    fs.mkdirSync(targetDir);
+    fs.writeFileSync(first, 'existing episode');
+    fs.writeFileSync(second, 'new episode');
+    fs.writeFileSync(path.join(targetDir, 'ep01.mkv'), 'existing episode');
+
+    const copyFile = fsp.copyFile;
+    const copy = vi.spyOn(fsp, 'copyFile').mockImplementationOnce(async (...args) => {
+      await copyFile(...args);
+      const current = listCloudJobs().find((item) => item.status === 'copying');
+      expect(cancelCloudJob(current!.id).ok).toBe(true);
+    });
+    try {
+      const result = await uploadLibraryToCloud({
+        kind: 'series', seriesId: 's1', seriesTitle: 'Series', folderPath: localRoot,
+        filePaths: [first, second], deleteLocal: true,
+      });
+      expect(result.deletedLocal).toBe(false);
+      expect(listCloudJobs()[0].status).toBe('cancelled');
+      expect(fs.readdirSync(localRoot).sort()).toEqual(['ep01.mkv', 'ep02.mkv']);
+      expect(fs.readdirSync(targetDir)).toEqual(['ep01.mkv']);
+      expect(fs.readFileSync(path.join(targetDir, 'ep01.mkv'), 'utf8')).toBe('existing episode');
+    } finally {
+      copy.mockRestore();
+    }
+  });
+
+  it('leaves the source alone if qBittorrent no longer reports completion after the copy', async () => {
+    const localVideo = path.join(localRoot, 'ep01.mkv');
+    fs.writeFileSync(localVideo, 'source contents');
+    const torrent = makeTorrent({ name: 'ep01.mkv', savePath: localRoot, contentPath: localVideo });
+    const job = enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: torrent.name,
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+    });
+    const control = vi.fn(async () => ({ ok: true }));
+    const listTorrents = vi.fn<() => Promise<QbTorrentItem[]>>()
+      .mockResolvedValueOnce([torrent])
+      .mockResolvedValueOnce([{ ...torrent, progress: 0.5 }]);
+    expect((await processCloudTransferQueue({
+      getTorrentsFn: listTorrents,
+      controlTorrentFn: control,
+    })).moved).toBe(1);
+    expect(control).not.toHaveBeenCalled();
+    expect(listCloudJobs().find((item) => item.id === job.id)?.error).toContain('已保留本地文件');
+    expect(fs.readFileSync(localVideo, 'utf8')).toBe('source contents');
+  });
+
+  it('preserves a source changed during qB cleanup and reports when cancellation is too late', async () => {
+    const localVideo = path.join(localRoot, 'ep01.mkv');
+    fs.writeFileSync(localVideo, 'original');
+    const torrent = makeTorrent({ name: 'ep01.mkv', savePath: localRoot, contentPath: localVideo });
+    const job = enqueueCloudTransferJob({
+      torrentHash: torrent.hash,
+      torrentName: torrent.name,
+      localSavePath: localRoot,
+      cloudTargetDir: cloudRoot,
+    });
+
+    await processCloudTransferQueue({
+      getTorrentsFn: async () => [torrent],
+      controlTorrentFn: async () => {
+        expect(cancelCloudJob(job.id).ok).toBe(false);
+        fs.writeFileSync(localVideo, 'changed after upload');
+        return { ok: true };
+      },
+    });
+    const finished = listCloudJobs().find((item) => item.id === job.id);
+    expect(finished?.status).toBe('completed');
+    expect(finished?.error).toContain('文件在校验后发生变化');
+    expect(fs.readFileSync(localVideo, 'utf8')).toBe('changed after upload');
+    expect(fs.readFileSync(path.join(cloudRoot, 'ep01.mkv'), 'utf8')).toBe('original');
+  });
+
+  it('limits transfer history without truncating active jobs', () => {
+    const first = enqueueCloudTransferJob({
+      torrentName: 'oldest', localSavePath: localRoot, cloudTargetDir: cloudRoot,
+    });
+    updateCloudTransferJobs((jobs) => {
+      const additional = Array.from({ length: 240 }, (_, index) => ({
+        ...first,
+        id: 'job-' + index,
+        status: index < 120 ? 'completed' as const : 'queued' as const,
+      }));
+      jobs.unshift(...additional, { ...first, id: 'old-history', status: 'completed' });
+      return { result: undefined };
+    });
+    const jobs = listCloudJobs();
+    expect(jobs.filter((job) => job.status === 'completed')).toHaveLength(120);
+    expect(jobs.filter((job) => job.status === 'queued')).toHaveLength(121);
+    expect(jobs.some((job) => job.id === first.id)).toBe(true);
+    expect(jobs.some((job) => job.id === 'old-history')).toBe(false);
   });
 
   it('uploadLibraryToCloud with deleteLocal=true copies episodes, preserves metadata & watched state, and removes local folder', async () => {
@@ -454,32 +658,24 @@ describe('cloudService', () => {
     fs.mkdirSync(localSeriesDir, { recursive: true });
     fs.writeFileSync(bigFile, Buffer.alloc(4 * 1024 * 1024, 1));
 
-    const first = await uploadLibraryToCloud({
-      kind: 'series',
+    const request = {
+      kind: 'series' as const,
       seriesId: 'concurrent-guard-series',
       seriesTitle: '并发防重测试番',
       folderPath: localSeriesDir,
       filePaths: [bigFile],
       deleteLocal: false,
       background: true,
-    });
-    expect(first.ok).toBe(true);
-
-    const dup = await uploadLibraryToCloud({
-      kind: 'series',
-      seriesId: 'concurrent-guard-series',
-      seriesTitle: '并发防重测试番',
-      folderPath: localSeriesDir,
-      filePaths: [bigFile],
-      deleteLocal: false,
-      background: true,
-    });
-    expect(dup.ok).toBe(false);
-    expect(dup.error).toContain('正在上传中');
+    };
+    const results = await Promise.all([uploadLibraryToCloud(request), uploadLibraryToCloud(request)]);
+    const first = results.find((result) => result.ok);
+    const duplicate = results.find((result) => !result.ok);
+    expect(first?.jobId).toBeTruthy();
+    expect(duplicate?.error).toContain('正在上传中');
 
     // Wait briefly for background job completion before afterEach removes tmpDir
     for (let i = 0; i < 20; i += 1) {
-      const active = listCloudJobs().some((j) => j.id === first.jobId && j.status === 'copying');
+      const active = listCloudJobs().some((j) => j.id === first?.jobId && j.status === 'copying');
       if (!active) break;
       await new Promise((r) => setTimeout(r, 40));
     }

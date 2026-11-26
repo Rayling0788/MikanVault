@@ -24,7 +24,7 @@ import {
   getSubscriptionLogs,
   getSubscriptions,
   normalizePathKey,
-  saveSubscriptions,
+  updateSubscriptions,
 } from './configStore';
 import { isVideoFile, parseEpisodeNumber, scanLibrary } from './libraryService';
 import { extractSubgroupFromTitle, getRssFeed } from './mikanService';
@@ -236,71 +236,73 @@ export function getSubscriptionLogsList(): SubscriptionLogEntry[] {
 
 export function upsertSubscription(req: UpsertSubscriptionRequest): SubscriptionItem {
   const settings = getSettings();
-  const list = getSubscriptions();
-  const id = req.id?.trim() || `${req.bangumiId}:${req.subgroupId}`;
-  const existingIdx = list.findIndex((s) => s.id === id);
-  const existing = existingIdx >= 0 ? list[existingIdx] : undefined;
+  const nextItem = updateSubscriptions((list) => {
+    const id = req.id?.trim() || `${req.bangumiId}:${req.subgroupId}`;
+    const existingIdx = list.findIndex((s) => s.id === id);
+    const existing = existingIdx >= 0 ? list[existingIdx] : undefined;
 
-  const mergedSkipped = new Set<string>(existing?.downloadedReleaseIds || []);
-  for (const rid of req.initialSkipReleaseIds || []) {
-    if (rid) mergedSkipped.add(rid);
-  }
+    const mergedSkipped = new Set<string>(existing?.downloadedReleaseIds || []);
+    for (const rid of req.initialSkipReleaseIds || []) {
+      if (rid) mergedSkipped.add(rid);
+    }
 
-  const safeStartAfter =
-    typeof req.startAfterEpisode === 'number' && Number.isFinite(req.startAfterEpisode)
-      ? Math.max(0, req.startAfterEpisode)
-      : 0;
+    const safeStartAfter =
+      typeof req.startAfterEpisode === 'number' && Number.isFinite(req.startAfterEpisode)
+        ? Math.max(0, req.startAfterEpisode)
+        : 0;
 
-  const savePath =
-    req.savePath?.trim() ||
-    path.join(settings.downloadRootDir, sanitizeFolderName(req.bangumiTitle));
+    const savePath =
+      req.savePath?.trim() ||
+      path.join(settings.downloadRootDir, sanitizeFolderName(req.bangumiTitle));
 
-  const nextItem: SubscriptionItem = {
-    id,
-    bangumiId: req.bangumiId.trim(),
-    bangumiTitle: req.bangumiTitle.trim(),
-    coverUrl: req.coverUrl ?? existing?.coverUrl,
-    subgroupId: req.subgroupId.trim(),
-    subgroupName: req.subgroupName.trim(),
-    rssUrl: req.rssUrl.trim(),
-    savePath,
-    category: req.category?.trim() || existing?.category || settings.qbCategory || 'MikanVault',
-    startAfterEpisode: safeStartAfter,
-    languageFilter:
-      req.languageFilter === undefined
-        ? existing?.languageFilter
-        : req.languageFilter === 'all'
-          ? undefined
-          : req.languageFilter,
-    includeKeywords: req.includeKeywords?.trim() || undefined,
-    excludeKeywords: req.excludeKeywords?.trim() || undefined,
-    cloudTargetDir: req.cloudTargetDir?.trim() || undefined,
-    deleteLocalAfterCloudMove:
-      req.deleteLocalAfterCloudMove ?? existing?.deleteLocalAfterCloudMove ?? true,
-    enabled: req.enabled ?? existing?.enabled ?? true,
-    downloadedReleaseIds: Array.from(mergedSkipped),
-    lastDownloadedEpisode: existing?.lastDownloadedEpisode,
-    createdAt: existing?.createdAt ?? Date.now(),
-    lastCheckedAt: existing?.lastCheckedAt,
-    lastTriggeredAt: existing?.lastTriggeredAt,
-    lastError: undefined,
-    totalAutoDownloaded: existing?.totalAutoDownloaded ?? 0,
-  };
+    const nextItem: SubscriptionItem = {
+      id,
+      bangumiId: req.bangumiId.trim(),
+      bangumiTitle: req.bangumiTitle.trim(),
+      coverUrl: req.coverUrl ?? existing?.coverUrl,
+      subgroupId: req.subgroupId.trim(),
+      subgroupName: req.subgroupName.trim(),
+      rssUrl: req.rssUrl.trim(),
+      savePath,
+      category: req.category?.trim() || existing?.category || settings.qbCategory || 'MikanVault',
+      startAfterEpisode: safeStartAfter,
+      languageFilter:
+        req.languageFilter === undefined
+          ? existing?.languageFilter
+          : req.languageFilter === 'all'
+            ? undefined
+            : req.languageFilter,
+      includeKeywords: req.includeKeywords?.trim() || undefined,
+      excludeKeywords: req.excludeKeywords?.trim() || undefined,
+      cloudTargetDir: req.cloudTargetDir?.trim() || undefined,
+      deleteLocalAfterCloudMove:
+        req.deleteLocalAfterCloudMove ?? existing?.deleteLocalAfterCloudMove ?? true,
+      enabled: req.enabled ?? existing?.enabled ?? true,
+      downloadedReleaseIds: Array.from(mergedSkipped),
+      lastDownloadedEpisode: existing?.lastDownloadedEpisode,
+      createdAt: existing?.createdAt ?? Date.now(),
+      lastCheckedAt: existing?.lastCheckedAt,
+      lastTriggeredAt: existing?.lastTriggeredAt,
+      lastError: undefined,
+      totalAutoDownloaded: existing?.totalAutoDownloaded ?? 0,
+    };
 
-  if (existingIdx >= 0) {
-    list[existingIdx] = nextItem;
-  } else {
-    list.unshift(nextItem);
-  }
-  saveSubscriptions(list);
+    if (existingIdx >= 0) {
+      list[existingIdx] = nextItem;
+    } else {
+      list.unshift(nextItem);
+    }
+    return nextItem;
+  });
   broadcastSubscriptionsUpdated();
   return nextItem;
 }
 
 export function deleteSubscription(id: string): ActionResult {
-  const list = getSubscriptions();
-  const next = list.filter((s) => s.id !== id);
-  saveSubscriptions(next);
+  updateSubscriptions((list) => {
+    const index = list.findIndex((item) => item.id === id);
+    if (index >= 0) list.splice(index, 1);
+  });
   broadcastSubscriptionsUpdated();
   return { ok: true };
 }
@@ -546,32 +548,29 @@ export async function checkSubscriptions(
       });
     }
 
-    // Re-read store before saving so user edits/additions/deletions made during async RSS checks are never overwritten
-    const latestList = getSubscriptions();
-    const mergedList = latestList.map((current) => {
-      const checked = updatedById.get(current.id);
-      if (!checked) return current;
-      const mergedDownloaded = Array.from(
-        new Set([...current.downloadedReleaseIds, ...checked.downloadedReleaseIds]),
-      );
-      return {
-        ...current,
-        downloadedReleaseIds: mergedDownloaded,
-        totalAutoDownloaded: Math.max(current.totalAutoDownloaded, checked.totalAutoDownloaded),
-        lastDownloadedEpisode:
-          checked.lastDownloadedEpisode !== undefined
-            ? Math.max(current.lastDownloadedEpisode ?? 0, checked.lastDownloadedEpisode)
-            : current.lastDownloadedEpisode,
-        lastTriggeredAt:
-          checked.lastTriggeredAt !== undefined
-            ? Math.max(current.lastTriggeredAt ?? 0, checked.lastTriggeredAt)
-            : current.lastTriggeredAt,
-        lastCheckedAt: checked.lastCheckedAt,
-        lastError: checked.lastError,
-      };
+    updateSubscriptions((latestList) => {
+      for (const current of latestList) {
+        const checked = updatedById.get(current.id);
+        if (!checked) continue;
+        const mergedDownloaded = Array.from(
+          new Set([...current.downloadedReleaseIds, ...checked.downloadedReleaseIds]),
+        );
+        Object.assign(current, {
+          downloadedReleaseIds: mergedDownloaded,
+          totalAutoDownloaded: Math.max(current.totalAutoDownloaded, checked.totalAutoDownloaded),
+          lastDownloadedEpisode:
+            checked.lastDownloadedEpisode !== undefined
+              ? Math.max(current.lastDownloadedEpisode ?? 0, checked.lastDownloadedEpisode)
+              : current.lastDownloadedEpisode,
+          lastTriggeredAt:
+            checked.lastTriggeredAt !== undefined
+              ? Math.max(current.lastTriggeredAt ?? 0, checked.lastTriggeredAt)
+              : current.lastTriggeredAt,
+          lastCheckedAt: checked.lastCheckedAt,
+          lastError: checked.lastError,
+        });
+      }
     });
-
-    saveSubscriptions(mergedList);
     broadcastSubscriptionsUpdated();
 
     return {
