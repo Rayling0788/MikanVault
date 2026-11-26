@@ -88,11 +88,13 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
     return unique;
   }, [allItems, groupMap, todayDow]);
 
-  // Auto-rotate Hero Spotlight every 8s when not hovered
+  // Auto-rotate Hero Spotlight every 8s when visible and not hovered
   useEffect(() => {
     if (featuredCandidates.length <= 1 || heroHovered) return;
     const timer = window.setInterval(() => {
-      setSpotlightIndex((prev) => (prev + 1) % featuredCandidates.length);
+      if (document.visibilityState === 'visible') {
+        setSpotlightIndex((prev) => (prev + 1) % featuredCandidates.length);
+      }
     }, 8000);
     return () => window.clearInterval(timer);
   }, [featuredCandidates.length, heroHovered]);
@@ -173,12 +175,12 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 src={heroBg.src}
                 alt=""
                 aria-hidden="true"
-                className="h-full w-full scale-125 object-cover opacity-42 blur-3xl saturate-150 transition-all duration-700"
+                className="h-full w-full scale-125 object-cover opacity-42 blur-2xl saturate-150 transition-opacity duration-500"
               />
             )}
             <div className="hero-scrim-h absolute inset-0" />
             <div className="hero-scrim-v absolute inset-0" />
-            <div className="absolute -top-24 -left-16 h-80 w-80 rounded-full bg-[#FF7A2F]/18 blur-3xl" />
+            <div className="pointer-events-none absolute -top-24 -left-16 h-80 w-80 rounded-full bg-[#FF7A2F]/18 blur-2xl" />
           </div>
 
           <div className="relative flex min-h-[296px] flex-col justify-between gap-6 p-6 sm:flex-row sm:items-center md:px-8 md:py-7">

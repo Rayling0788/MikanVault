@@ -70,6 +70,7 @@ const MikanVaultShell: React.FC = () => {
   const [overlay, setOverlay] = useState<OverlayView>({ kind: 'none' });
   const [customRssUrl, setCustomRssUrl] = useState<string | undefined>(undefined);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const showScrollTopRef = useRef(false);
 
   // Settings
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -114,9 +115,9 @@ const MikanVaultShell: React.FC = () => {
     () => cloudRefreshRef.current(),
   );
 
-  const scrollTop = () => {
+  const scrollTop = useCallback(() => {
     mainScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
-  };
+  }, []);
 
   const loadSchedule = useCallback(async (year?: number, season?: MikanSeasonName) => {
     setScheduleLoading(true);
@@ -217,13 +218,13 @@ const MikanVaultShell: React.FC = () => {
     }
   }, [activeSection, libraryInitialized, libraryScanning, scanLibrary]);
 
-  const handleSelectSection = (section: NavSection) => {
+  const handleSelectSection = useCallback((section: NavSection) => {
     setActiveSection(section);
     setOverlay({ kind: 'none' });
     scrollTop();
-  };
+  }, [scrollTop]);
 
-  const handleOpenBangumiCard = (card: MikanBangumiCard, fromSearch = false) => {
+  const handleOpenBangumiCard = useCallback((card: MikanBangumiCard, fromSearch = false) => {
     setOverlay({
       kind: 'bangumi',
       bangumiId: card.id,
@@ -232,9 +233,9 @@ const MikanVaultShell: React.FC = () => {
       returnToSearch: fromSearch,
     });
     scrollTop();
-  };
+  }, [scrollTop]);
 
-  const handleOpenBangumiId = (id: string, detail?: MikanBangumiDetail) => {
+  const handleOpenBangumiId = useCallback((id: string, detail?: MikanBangumiDetail) => {
     setOverlay({
       kind: 'bangumi',
       bangumiId: id,
@@ -243,9 +244,9 @@ const MikanVaultShell: React.FC = () => {
       initialDetail: detail || null,
     });
     scrollTop();
-  };
+  }, [scrollTop]);
 
-  const handleSearchSubmit = async (query: string) => {
+  const handleSearchSubmit = useCallback(async (query: string) => {
     const clean = query.trim();
     if (!clean) return;
     setSearchInput(clean);
@@ -263,14 +264,14 @@ const MikanVaultShell: React.FC = () => {
     } finally {
       setSearchLoading(false);
     }
-  };
+  }, [scrollTop]);
 
-  const handleClearSearch = () => {
+  const handleClearSearch = useCallback(() => {
     setSearchInput('');
     setActiveSearchQuery('');
     setSearchResult(null);
     setSearchError(null);
-  };
+  }, []);
 
   const handleGoBack = useCallback(() => {
     if (overlay.kind === 'bangumi' && overlay.returnToSearch) {
@@ -337,7 +338,7 @@ const MikanVaultShell: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [overlay.kind, downloadModal.targets.length, subscribeTarget, handleGoBack]);
 
-  const handleLaunchQbWithToast = async () => {
+  const handleLaunchQbWithToast = useCallback(async () => {
     const res = await qb.launchQb();
     if (res.ok) {
       pushToast({
@@ -353,7 +354,7 @@ const MikanVaultShell: React.FC = () => {
       });
     }
     return res;
-  };
+  }, [qb.launchQb, pushToast]);
 
   const activeSeries = useMemo(() => {
     if (overlay.kind !== 'series') return null;
@@ -431,7 +432,13 @@ const MikanVaultShell: React.FC = () => {
 
         <main
           ref={mainScrollRef}
-          onScroll={(e) => setShowScrollTop(e.currentTarget.scrollTop > 420)}
+          onScroll={(e) => {
+            const next = e.currentTarget.scrollTop > 420;
+            if (next !== showScrollTopRef.current) {
+              showScrollTopRef.current = next;
+              setShowScrollTop(next);
+            }
+          }}
           className="min-h-0 flex-1 overflow-y-auto"
         >
           <div key={viewKey} className="animate-page-enter min-h-full">
@@ -628,6 +635,8 @@ const MikanVaultShell: React.FC = () => {
               completedCount={qb.completedCount}
               totalDlSpeed={qb.totalDlSpeed}
               totalUlSpeed={qb.totalUlSpeed}
+              cloudStatus={cloud.status}
+              cloudJobs={cloud.jobs}
               onRefresh={qb.refresh}
               onLaunchQb={handleLaunchQbWithToast}
               onOpenSettings={() => handleSelectSection('settings')}

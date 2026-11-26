@@ -21,6 +21,7 @@ import {
   cancelCloudJob,
   clearFinishedCloudJobs,
   getCloudDriveStatus,
+  invalidateCloudStatusCache,
   listCloudJobs,
   processCloudTransferQueue,
   removeCloudJob,
@@ -318,6 +319,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_event, patch: Partial<AppSettings>) => {
     const prev = getSettings().subscriptionCheckIntervalMin;
     const next = updateSettings(patch);
+    invalidateCloudStatusCache();
     if (next.subscriptionCheckIntervalMin !== prev) {
       restartSubscriptionScheduler();
     }

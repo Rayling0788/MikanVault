@@ -16,46 +16,93 @@ export interface UseQbStatusResult {
   launchQb: () => Promise<{ ok: boolean; error?: string }>;
 }
 
+function getQbStatusSignature(s: QbConnectionStatus): string {
+  return `${s.ok}|${s.connected}|${s.qbRunning}|${s.exeExists}|${s.version || ''}|${s.error || ''}`;
+}
+
+function getTorrentsSignature(list: QbTorrentItem[]): string {
+  if (list.length === 0) return '0';
+  return list
+    .map(
+      (t) =>
+        `${t.hash}:${t.state}:${t.progress.toFixed(4)}:${t.dlspeed}:${t.upspeed}:${t.downloaded ?? 0}:${t.eta}:${t.savePath}`,
+    )
+    .join('|');
+}
+
 export function useQbStatus(fastPolling: boolean): UseQbStatusResult {
   const [status, setStatus] = useState<QbConnectionStatus | null>(null);
   const [torrents, setTorrents] = useState<QbTorrentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const isFetchingRef = useRef(false);
+  const lastStatusSigRef = useRef<string | null>(null);
+  const lastTorrentsSigRef = useRef<string>('0');
+
+  const commitStatus = useCallback((next: QbConnectionStatus) => {
+    const sig = getQbStatusSignature(next);
+    if (sig !== lastStatusSigRef.current) {
+      lastStatusSigRef.current = sig;
+      setStatus(next);
+    }
+  }, []);
+
+  const commitTorrents = useCallback((nextList: QbTorrentItem[]) => {
+    const sig = getTorrentsSignature(nextList);
+    if (sig !== lastTorrentsSigRef.current) {
+      lastTorrentsSigRef.current = sig;
+      setTorrents(nextList);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
       const conn = await api.qbTestConnection();
-      setStatus(conn);
+      commitStatus(conn);
       if (conn.connected) {
         const list = await api.qbGetTorrents();
-        setTorrents(Array.isArray(list) ? list : []);
+        commitTorrents(Array.isArray(list) ? list : []);
       } else {
-        setTorrents([]);
+        commitTorrents([]);
       }
     } catch (err) {
-      setStatus({
+      commitStatus({
         ok: false,
         connected: false,
         qbRunning: false,
         exeExists: false,
         error: err instanceof Error ? err.message : '连接检测失败',
       });
-      setTorrents([]);
+      commitTorrents([]);
     } finally {
       setLoading(false);
       isFetchingRef.current = false;
     }
-  }, []);
+  }, [commitStatus, commitTorrents]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  const stats = useMemo(() => {
+    let activeCount = 0;
+    let completedCount = 0;
+    let totalDlSpeed = 0;
+    let totalUlSpeed = 0;
+    for (const t of torrents) {
+      const meta = getTorrentStateMeta(t.state);
+      if (meta.category === 'downloading') activeCount += 1;
+      if (t.progress >= 0.999 || meta.category === 'completed') completedCount += 1;
+      totalDlSpeed += t.dlspeed || 0;
+      totalUlSpeed += t.upspeed || 0;
+    }
+    return { activeCount, completedCount, totalDlSpeed, totalUlSpeed };
+  }, [torrents]);
+
   useEffect(() => {
-    const intervalMs = fastPolling ? 2000 : 6000;
+    const intervalMs = fastPolling || stats.activeCount > 0 ? 2000 : 10000;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void refresh();
@@ -73,7 +120,7 @@ export function useQbStatus(fastPolling: boolean): UseQbStatusResult {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fastPolling, refresh]);
+  }, [fastPolling, stats.activeCount, refresh]);
 
   const launchQb = useCallback(async () => {
     setLaunching(true);
@@ -88,10 +135,10 @@ export function useQbStatus(fastPolling: boolean): UseQbStatusResult {
         await new Promise((r) => window.setTimeout(r, delay));
         const conn = await api.qbTestConnection();
         lastConn = conn;
-        setStatus(conn);
+        commitStatus(conn);
         if (conn.connected) {
           const list = await api.qbGetTorrents();
-          setTorrents(Array.isArray(list) ? list : []);
+          commitTorrents(Array.isArray(list) ? list : []);
           return { ok: true };
         }
       }
@@ -107,22 +154,7 @@ export function useQbStatus(fastPolling: boolean): UseQbStatusResult {
     } finally {
       setLaunching(false);
     }
-  }, [refresh]);
-
-  const stats = useMemo(() => {
-    let activeCount = 0;
-    let completedCount = 0;
-    let totalDlSpeed = 0;
-    let totalUlSpeed = 0;
-    for (const t of torrents) {
-      const meta = getTorrentStateMeta(t.state);
-      if (meta.category === 'downloading') activeCount += 1;
-      if (t.progress >= 0.999 || meta.category === 'completed') completedCount += 1;
-      totalDlSpeed += t.dlspeed || 0;
-      totalUlSpeed += t.upspeed || 0;
-    }
-    return { activeCount, completedCount, totalDlSpeed, totalUlSpeed };
-  }, [torrents]);
+  }, [commitStatus, commitTorrents, refresh]);
 
   return {
     status,

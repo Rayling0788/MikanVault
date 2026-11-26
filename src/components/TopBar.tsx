@@ -28,7 +28,7 @@ function getThemeLabel(mode: ThemeMode): string {
   }
 }
 
-export const TopBar: React.FC<TopBarProps> = ({
+export const TopBar: React.FC<TopBarProps> = React.memo(({
   title,
   subtitle,
   canGoBack = false,
@@ -146,4 +146,6 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
     </header>
   );
-};
+});
+
+TopBar.displayName = 'TopBar';

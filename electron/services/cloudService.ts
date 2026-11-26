@@ -18,6 +18,7 @@ import {
   getSeriesMetaById,
   getSettings,
   getWatchedRecord,
+  invalidateGoogleDriveMountCache,
   normalizePathKey,
   recordDownloadMeta,
   saveCloudTransferJobs,
@@ -37,6 +38,13 @@ let isProcessingQueue = false;
 const liveJobProgress = new Map<string, Partial<CloudTransferJob>>();
 const cancelledJobIds = new Set<string>();
 const activeRunningJobIds = new Set<string>();
+let cachedCloudStatus: { key: string; value: CloudDriveStatus; expiresAt: number } | null = null;
+const CLOUD_STATUS_CACHE_TTL_MS = 10_000;
+
+export function invalidateCloudStatusCache(): void {
+  cachedCloudStatus = null;
+  invalidateGoogleDriveMountCache();
+}
 
 class JobCancelledError extends Error {
   constructor() {
@@ -75,10 +83,21 @@ function getExistingProbePath(targetPath: string): string | null {
   return null;
 }
 
-export function getCloudDriveStatus(): CloudDriveStatus {
-  const mount = detectGoogleDriveMount();
+export function getCloudDriveStatus(forceRefresh = false): CloudDriveStatus {
   const settings = getSettings();
-  const configuredDir = settings.googleDriveDir?.trim() || mount.defaultTargetDir || '';
+  const configuredOverride = settings.googleDriveDir?.trim() || '';
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cachedCloudStatus &&
+    cachedCloudStatus.key === configuredOverride &&
+    cachedCloudStatus.expiresAt > now
+  ) {
+    return { ...cachedCloudStatus.value };
+  }
+
+  const mount = detectGoogleDriveMount(forceRefresh);
+  const configuredDir = configuredOverride || mount.defaultTargetDir || '';
   const configuredAccessible = configuredDir ? isPathOrParentAccessible(configuredDir) : false;
 
   let freeBytes: number | undefined;
@@ -97,7 +116,7 @@ export function getCloudDriveStatus(): CloudDriveStatus {
     }
   }
 
-  return {
+  const result: CloudDriveStatus = {
     detected: Boolean(mount.mountRoot),
     mountRoot: mount.mountRoot,
     defaultTargetDir: mount.defaultTargetDir,
@@ -106,6 +125,12 @@ export function getCloudDriveStatus(): CloudDriveStatus {
     freeBytes,
     totalBytes,
   };
+  cachedCloudStatus = {
+    key: configuredOverride,
+    value: result,
+    expiresAt: now + CLOUD_STATUS_CACHE_TTL_MS,
+  };
+  return { ...result };
 }
 
 export function resolveCloudSeriesTargetDir(
@@ -408,13 +433,19 @@ export async function copyPathCrossDrive(
   await fsp.mkdir(path.dirname(destPath), { recursive: true });
 
   // Poll destination file size read-only while standard OS fsp.copyFile runs
+  let statInFlight = false;
   const pollTimer = setInterval(() => {
+    if (statInFlight) return;
+    statInFlight = true;
     void fsp
       .stat(destPath)
       .then((st) => {
         callbacks?.onFileProgress?.(Math.min(srcStat.size, st.size), fileName);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        statInFlight = false;
+      });
   }, 450);
 
   try {
@@ -706,6 +737,7 @@ export async function processCloudTransferQueue(
         }
       } finally {
         activeRunningJobIds.delete(job.id);
+        invalidateCloudStatusCache();
       }
     }
 
@@ -959,6 +991,7 @@ async function runLibraryUploadJob(
     };
   } finally {
     activeRunningJobIds.delete(job.id);
+    invalidateCloudStatusCache();
   }
 }
 
@@ -1005,6 +1038,27 @@ export async function uploadLibraryToCloud(
     };
   }
 
+  const targetDir = resolveCloudSeriesTargetDir(cloudRootDir, req.seriesTitle);
+  const targetDirKey = normalizePathKey(path.resolve(targetDir));
+  const requestedFilesSet = new Set(cleanFilePaths.map((p) => normalizePathKey(path.resolve(p))));
+  const duplicateActive = getCloudTransferJobs().some((j) => {
+    if (j.status !== 'copying' || !activeRunningJobIds.has(j.id)) return false;
+    if (normalizePathKey(path.resolve(j.cloudTargetDir)) !== targetDirKey) return false;
+    if (req.seriesId && j.seriesId === req.seriesId) return true;
+    return (j.sourceFilePaths || []).some((fp) =>
+      requestedFilesSet.has(normalizePathKey(path.resolve(fp))),
+    );
+  });
+  if (duplicateActive) {
+    return {
+      ok: false,
+      copiedFiles: 0,
+      totalBytes: 0,
+      deletedLocal: false,
+      error: '该番剧正在上传中，请等待当前任务完成',
+    };
+  }
+
   let expectedTotalBytes = 0;
   for (const srcFile of cleanFilePaths) {
     if (!fs.existsSync(srcFile)) {
@@ -1023,7 +1077,6 @@ export async function uploadLibraryToCloud(
     }
   }
 
-  const targetDir = resolveCloudSeriesTargetDir(cloudRootDir, req.seriesTitle);
   const jobId = crypto.randomUUID();
   const now = Date.now();
   const job: CloudTransferJob = {

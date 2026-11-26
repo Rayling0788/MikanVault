@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -44,6 +44,8 @@ interface DownloadsPageProps {
   completedCount: number;
   totalDlSpeed: number;
   totalUlSpeed: number;
+  cloudStatus?: CloudDriveStatus | null;
+  cloudJobs?: CloudTransferJob[];
   onRefresh: () => Promise<void>;
   onLaunchQb: () => Promise<{ ok: boolean; error?: string }>;
   onOpenSettings: () => void;
@@ -61,6 +63,8 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
   completedCount,
   totalDlSpeed,
   totalUlSpeed,
+  cloudStatus = null,
+  cloudJobs = [],
   onRefresh,
   onLaunchQb,
   onOpenSettings,
@@ -72,29 +76,6 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
   const [busyHash, setBusyHash] = useState<string | null>(null);
   const [batchControlling, setBatchControlling] = useState<'pause' | 'resume' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QbTorrentItem | null>(null);
-  const [cloudStatus, setCloudStatus] = useState<CloudDriveStatus | null>(null);
-  const [cloudJobs, setCloudJobs] = useState<CloudTransferJob[]>([]);
-
-  const loadCloudData = useCallback(async () => {
-    try {
-      const [statusRes, jobsRes] = await Promise.all([
-        api.cloudGetStatus(),
-        api.cloudListJobs(),
-      ]);
-      setCloudStatus(statusRes);
-      setCloudJobs(jobsRes);
-    } catch {
-      // Ignore transient error
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCloudData();
-    const timer = setInterval(() => {
-      void loadCloudData();
-    }, 4000);
-    return () => clearInterval(timer);
-  }, [loadCloudData]);
 
   const connected = Boolean(status?.connected);
 
@@ -160,16 +141,15 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
     if (targets.length === 0 || batchControlling) return;
     setBatchControlling(action);
     try {
-      const results = await Promise.all(
-        targets.map((t) => api.qbControlTorrent(t.hash, action)),
-      );
-      const okCount = results.filter((r) => r.ok).length;
+      const joinedHashes = targets.map((t) => t.hash).join('|');
+      const res = await api.qbControlTorrent(joinedHashes, action);
       pushToast({
-        kind: okCount > 0 ? 'success' : 'error',
-        title:
-          action === 'pause'
-            ? `已暂停 ${okCount} 个下载任务`
-            : `已恢复 ${okCount} 个下载任务`,
+        kind: res.ok ? 'success' : 'error',
+        title: res.ok
+          ? action === 'pause'
+            ? `已暂停 ${targets.length} 个下载任务`
+            : `已恢复 ${targets.length} 个下载任务`
+          : res.error || '批量操作失败',
       });
       await onRefresh();
     } finally {

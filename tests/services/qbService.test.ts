@@ -3,8 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getMetadata,
   getSeriesMeta,
+  getSettings,
   parseQbIniContent,
+  recordDownloadMeta,
   setDataDirForTesting,
   updateSettings,
 } from '../../electron/services/configStore';
@@ -362,5 +365,51 @@ describe('qbService & configStore', () => {
 
     expect(res.ok).toBe(true);
     expect(res.savePath).toBe(path.join(downloadDir, '葬送的芙莉莲 第二季'));
+  });
+
+  it('deduplicates concurrent qBittorrent login requests into a single /auth/login call', async () => {
+    let loginCount = 0;
+    const mockQbFetch: FetchLike = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/v2/auth/login')) {
+        loginCount += 1;
+        await new Promise((r) => setTimeout(r, 25));
+        return new Response('Ok.', {
+          status: 200,
+          headers: { 'set-cookie': 'SID=sid-dedup; Path=/' },
+        });
+      }
+      if (url.includes('/api/v2/torrents/info')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('v5.1.0', { status: 200 });
+    });
+
+    await Promise.all([
+      getTorrents(mockQbFetch),
+      getTorrents(mockQbFetch),
+      testConnection(undefined, mockQbFetch),
+    ]);
+
+    expect(loginCount).toBe(1);
+  });
+
+  it('caps downloadsMap at 400 entries and serves cached settings cleanly', () => {
+    const s1 = getSettings();
+    const s2 = getSettings();
+    expect(s1).toEqual(s2);
+
+    for (let i = 0; i < 420; i += 1) {
+      recordDownloadMeta({
+        hash: String(i).padStart(40, '0'),
+        title: `Test Release ${i}`,
+        savePath: downloadDir,
+      });
+    }
+
+    const meta = getMetadata();
+    expect(Object.keys(meta.downloadsMap).length).toBeLessThanOrEqual(400);
   });
 });

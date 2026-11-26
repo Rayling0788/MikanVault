@@ -296,5 +296,37 @@ describe('libraryService', () => {
       expect(list3).toHaveLength(1);
       expect(list3[0].totalEpisodes).toBe(2);
     });
+
+    it('never deletes googleDriveDir root when deleting loose series files stored directly in cloud root', async () => {
+      const cloudRoot = path.join(tmpDir, 'CloudAnimeRoot');
+      fs.mkdirSync(cloudRoot, { recursive: true });
+      const ep1 = path.join(cloudRoot, '[ANi] 胆大党 - 01 [1080P][简中].mp4');
+      const otherSeriesEp = path.join(cloudRoot, '[ANi] 迷宫饭 - 01 [1080P][简中].mp4');
+      fs.writeFileSync(ep1, 'dandadan-ep1');
+      fs.writeFileSync(otherSeriesEp, 'dungeon-ep1');
+
+      updateSettings({
+        googleDriveEnabled: true,
+        googleDriveDir: cloudRoot,
+        googleDriveIncludeInLibrary: true,
+      });
+
+      const list = await scanLibrary();
+      const dandadan = list.find((s) => s.title === '胆大党');
+      expect(dandadan).toBeDefined();
+      expect(dandadan!.folderPath).toBe(cloudRoot);
+
+      const rmRes = await removeSeriesFromLibrary({
+        seriesId: dandadan!.seriesId,
+        folderPath: dandadan!.folderPath,
+        filePaths: [ep1],
+        deleteFiles: true,
+      });
+      expect(rmRes.ok).toBe(true);
+      expect(fs.existsSync(ep1)).toBe(false);
+      // Root cloud directory and other series inside it MUST remain intact
+      expect(fs.existsSync(cloudRoot)).toBe(true);
+      expect(fs.existsSync(otherSeriesEp)).toBe(true);
+    });
   });
 });

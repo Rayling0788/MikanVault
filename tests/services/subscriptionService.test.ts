@@ -400,4 +400,64 @@ describe('subscriptionService', () => {
     expect(pushedTitles[0]).toContain('08');
     expect(pushedTitles[0]).toContain('简日内嵌');
   });
+
+  it('preserves concurrent subscription additions/edits made while RSS checks are in-flight', async () => {
+    const animeFolder = path.join(downloadDir, 'ConcurrentAnime');
+    fs.mkdirSync(animeFolder, { recursive: true });
+
+    const subA = upsertSubscription({
+      bangumiId: '4201',
+      bangumiTitle: '并发测试番A',
+      subgroupId: '100',
+      subgroupName: 'SubA',
+      rssUrl: 'https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4201&subgroupid=100',
+      savePath: animeFolder,
+      startAfterEpisode: 0,
+    });
+
+    let releaseRssFetch!: (items: MikanRelease[]) => void;
+    const rssPromise = new Promise<MikanRelease[]>((resolve) => {
+      releaseRssFetch = resolve;
+    });
+
+    const checkPromise = checkSubscriptions(undefined, {
+      fetchRss: async () => rssPromise,
+      getTorrentsFn: async () => [],
+      testConnFn: async () => ({ ok: true, connected: true, qbRunning: true, exeExists: true }),
+      addDownloadFn: async () => ({ ok: true, savePath: animeFolder }),
+      notifyFn: vi.fn(),
+    });
+
+    // Simulate user adding a second subscription and updating includeKeywords while RSS fetch is still in flight
+    await new Promise((r) => setTimeout(r, 20));
+    upsertSubscription({
+      id: subA.id,
+      bangumiId: '4201',
+      bangumiTitle: '并发测试番A',
+      subgroupId: '100',
+      subgroupName: 'SubA',
+      rssUrl: 'https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4201&subgroupid=100',
+      savePath: animeFolder,
+      startAfterEpisode: 0,
+      includeKeywords: 'HEVC',
+    });
+    const subB = upsertSubscription({
+      bangumiId: '4202',
+      bangumiTitle: '并发测试番B',
+      subgroupId: '200',
+      subgroupName: 'SubB',
+      rssUrl: 'https://mikanani.kas.pub/RSS/Bangumi?bangumiId=4202&subgroupid=200',
+      savePath: animeFolder,
+      startAfterEpisode: 0,
+    });
+
+    releaseRssFetch([makeRelease(1)]);
+    const summary = await checkPromise;
+    expect(summary.newDownloads).toBe(1);
+
+    const allAfter = listSubscriptions();
+    expect(allAfter.some((s) => s.id === subB.id)).toBe(true);
+    expect(allAfter.find((s) => s.id === subA.id)?.includeKeywords).toBe('HEVC');
+    expect(allAfter.find((s) => s.id === subA.id)?.totalAutoDownloaded).toBe(1);
+  });
 });

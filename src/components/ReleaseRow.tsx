@@ -27,7 +27,7 @@ interface ReleaseRowProps {
 const REDUNDANT_LANG_TAG_REGEX =
   /^(简繁|简日|繁日|简中|繁中|CHS|CHT|简体|繁体|简|繁)$/i;
 
-export const ReleaseRow: React.FC<ReleaseRowProps> = ({
+export const ReleaseRow: React.FC<ReleaseRowProps> = React.memo(({
   release,
   showSubgroup = true,
   selectable = false,
@@ -55,7 +55,7 @@ export const ReleaseRow: React.FC<ReleaseRowProps> = ({
 
   return (
     <div
-      className={`group flex flex-col gap-3 rounded-xl border px-4 py-3 transition-all duration-150 sm:flex-row sm:items-center sm:justify-between ${
+      className={`release-row-item group flex flex-col gap-3 rounded-xl border px-4 py-3 transition-all duration-150 sm:flex-row sm:items-center sm:justify-between ${
         selected
           ? 'border-[#FF7A2F]/50 bg-[#FF7A2F]/[0.075] shadow-[inset_0_1px_0_rgba(255,122,47,0.16)]'
           : 'border-white/[0.07] bg-[#12151C]/92 hover:border-white/[0.14] hover:bg-[#171B24]'
@@ -204,4 +204,6 @@ export const ReleaseRow: React.FC<ReleaseRowProps> = ({
       </div>
     </div>
   );
-};
+});
+
+ReleaseRow.displayName = 'ReleaseRow';

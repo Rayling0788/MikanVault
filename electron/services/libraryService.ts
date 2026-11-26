@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type {
   ActionResult,
@@ -15,16 +16,11 @@ import type {
 } from '../../src/shared/types';
 import {
   deleteSeriesMeta,
-  findSeriesMetaByTitle,
   getHiddenCount,
-  getSeriesMeta,
-  getSeriesMetaById,
+  getLibraryMetadataSnapshot,
   getSettings,
-  getWatchedRecord,
   hideFilePath,
   hideSeries,
-  isFileHidden,
-  isSeriesHidden,
   normalizePathKey,
   restoreAllHidden,
   setSeriesMeta,
@@ -176,20 +172,23 @@ interface ScannedVideoEntry {
   addedAt: number;
 }
 
-function collectVideosInDir(
+async function collectVideosInDir(
   rootDir: string,
   currentDir: string,
   depth: number,
   out: ScannedVideoEntry[],
-): void {
+): Promise<void> {
   if (depth > MAX_SCAN_DEPTH) return;
 
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    entries = await fsp.readdir(currentDir, { withFileTypes: true });
   } catch {
     return;
   }
+
+  const subDirs: string[] = [];
+  const videoFiles: Array<{ fullPath: string; name: string }> = [];
 
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
@@ -197,21 +196,39 @@ function collectVideosInDir(
       if (SKIP_DIRS.has(entry.name.toLowerCase()) || entry.name.startsWith('.')) {
         continue;
       }
-      collectVideosInDir(rootDir, fullPath, depth + 1, out);
+      subDirs.push(fullPath);
     } else if (entry.isFile() && isVideoFile(entry.name)) {
-      try {
-        const stat = fs.statSync(fullPath);
-        out.push({
-          rootDir,
-          filePath: fullPath,
-          fileName: entry.name,
-          sizeBytes: stat.size,
-          addedAt: stat.mtimeMs,
-        });
-      } catch {
-        // Skip unreadable files
-      }
+      videoFiles.push({ fullPath, name: entry.name });
     }
+  }
+
+  // Stat video files with bounded concurrency so large folders & cloud mounts stay fast and non-blocking
+  const STAT_BATCH = 8;
+  for (let i = 0; i < videoFiles.length; i += STAT_BATCH) {
+    const batch = videoFiles.slice(i, i + STAT_BATCH);
+    const results = await Promise.all(
+      batch.map(async (f) => {
+        try {
+          const stat = await fsp.stat(f.fullPath);
+          return {
+            rootDir,
+            filePath: f.fullPath,
+            fileName: f.name,
+            sizeBytes: stat.size,
+            addedAt: stat.mtimeMs,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const item of results) {
+      if (item) out.push(item);
+    }
+  }
+
+  for (const subDir of subDirs) {
+    await collectVideosInDir(rootDir, subDir, depth + 1, out);
   }
 }
 
@@ -238,15 +255,20 @@ export async function scanLibrary(overrideRoots?: string[]): Promise<LibrarySeri
     const key = normalizePathKey(resolved);
     if (seenRootKeys.has(key)) continue;
     seenRootKeys.add(key);
-    if (fs.existsSync(resolved)) {
+    try {
+      await fsp.access(resolved);
       uniqueRoots.push(resolved);
+    } catch {
+      // Skip inaccessible root directory
     }
   }
 
   const videos: ScannedVideoEntry[] = [];
   for (const root of uniqueRoots) {
-    collectVideosInDir(root, root, 0, videos);
+    await collectVideosInDir(root, root, 0, videos);
   }
+
+  const metaSnapshot = getLibraryMetadataSnapshot();
 
   // Deduplicate by normalized filePath in case nested roots overlap
   const seenFiles = new Set<string>();
@@ -270,8 +292,8 @@ export async function scanLibrary(overrideRoots?: string[]): Promise<LibrarySeri
   >();
 
   for (const video of videos) {
-    if (isFileHidden(video.filePath)) continue;
     const fileKey = normalizePathKey(video.filePath);
+    if (metaSnapshot.hiddenFileSet.has(fileKey)) continue;
     if (seenFiles.has(fileKey)) continue;
     seenFiles.add(fileKey);
 
@@ -297,15 +319,19 @@ export async function scanLibrary(overrideRoots?: string[]): Promise<LibrarySeri
     }
 
     const seriesId = crypto.createHash('sha1').update(groupKey).digest('hex').slice(0, 16);
-    if (isSeriesHidden(seriesId)) continue;
+    if (metaSnapshot.hiddenSeriesSet.has(seriesId)) continue;
 
     let group = seriesGroups.get(groupKey);
     if (!group) {
+      const normalizedTitleKey = defaultTitle.trim().toLowerCase();
       const folderMeta =
-        getSeriesMetaById(seriesId) ??
+        metaSnapshot.seriesMetaMap[`series:${seriesId}`] ??
         (segments.length >= 2
-          ? getSeriesMeta(seriesFolderPath) ?? findSeriesMetaByTitle(defaultTitle)
-          : findSeriesMetaByTitle(defaultTitle));
+          ? metaSnapshot.seriesMetaMap[normalizePathKey(seriesFolderPath)] ??
+            (normalizedTitleKey ? metaSnapshot.titleMetaMap.get(normalizedTitleKey) : undefined)
+          : normalizedTitleKey
+            ? metaSnapshot.titleMetaMap.get(normalizedTitleKey)
+            : undefined);
 
       group = {
         seriesId,
@@ -331,7 +357,7 @@ export async function scanLibrary(overrideRoots?: string[]): Promise<LibrarySeri
     const resolution = extractResolution(video.fileName);
     const subgroup = extractSubgroupFromTitle(video.fileName);
     const tags = extractReleaseTags(video.fileName, subgroup);
-    const watchedRec = getWatchedRecord(video.filePath);
+    const watchedRec = metaSnapshot.watchedMap[fileKey];
 
     group.episodes.push({
       id: crypto.createHash('sha1').update(fileKey).digest('hex').slice(0, 16),
@@ -635,15 +661,15 @@ async function fetchOptionalBgmEnrichment(
   }
 }
 
-function findSampleVideoFileNameInFolder(folderPath: string): string | null {
-  if (!folderPath || !fs.existsSync(folderPath)) return null;
+async function findSampleVideoFileNameInFolder(folderPath: string): Promise<string | null> {
+  if (!folderPath) return null;
   try {
-    const stat = fs.statSync(folderPath);
+    const stat = await fsp.stat(folderPath);
     if (!stat.isDirectory()) return null;
     const queue: Array<{ dir: string; depth: number }> = [{ dir: folderPath, depth: 0 }];
     while (queue.length > 0) {
       const { dir, depth } = queue.shift()!;
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const entries = await fsp.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isFile() && isVideoFile(entry.name)) {
           return entry.name;
@@ -667,7 +693,11 @@ function isDedicatedSeriesFolder(folderPath: string): boolean {
   if (!folderPath?.trim()) return false;
   const settings = getSettings();
   const targetKey = normalizePathKey(folderPath);
-  const roots = [settings.downloadRootDir, ...settings.extraLibraryDirs]
+  const roots = [
+    settings.downloadRootDir,
+    ...settings.extraLibraryDirs,
+    settings.googleDriveDir,
+  ]
     .filter((d) => Boolean(d?.trim()))
     .map((d) => normalizePathKey(d));
   return !roots.includes(targetKey);
@@ -699,7 +729,7 @@ export async function scrapeSeries(
       }
 
       if (!req.query?.trim() && isDedicatedSeriesFolder(req.folderPath)) {
-        const sampleFile = findSampleVideoFileNameInFolder(req.folderPath);
+        const sampleFile = await findSampleVideoFileNameInFolder(req.folderPath);
         if (sampleFile) {
           const fromFile = cleanSearchQueryForScrape(cleanSeriesTitleFromFileName(sampleFile));
           pushQuery(fromFile);

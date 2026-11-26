@@ -86,7 +86,7 @@ function readCollapsedState(): boolean {
   }
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
+export const Sidebar: React.FC<SidebarProps> = React.memo(({
   activeSection,
   onSelectSection,
   qbStatus,
@@ -394,4 +394,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
     </aside>
   );
-};
+});
+
+Sidebar.displayName = 'Sidebar';

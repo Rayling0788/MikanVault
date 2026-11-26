@@ -6,6 +6,8 @@ import {
   cancelCloudJob,
   clearFinishedCloudJobs,
   enqueueCloudTransferJob,
+  getCloudDriveStatus,
+  invalidateCloudStatusCache,
   listCloudJobs,
   processCloudTransferQueue,
   recoverStaleCloudJobs,
@@ -431,5 +433,55 @@ describe('cloudService', () => {
     const recoveredCount = recoverStaleCloudJobs(0);
     expect(recoveredCount).toBe(1);
     expect(listCloudJobs().find((j) => j.id === zombieId2)?.status).toBe('failed');
+  });
+
+  it('caches cloud drive status cleanly across setting updates and prevents duplicate concurrent series uploads', async () => {
+    invalidateCloudStatusCache();
+    const st1 = getCloudDriveStatus();
+    expect(st1.configuredDir).toBe(cloudRoot);
+    expect(st1.configuredAccessible).toBe(true);
+
+    const altCloud = path.join(tmpDir, 'AltCloud', 'MikanVault');
+    fs.mkdirSync(altCloud, { recursive: true });
+    updateSettings({ googleDriveDir: altCloud });
+    const st2 = getCloudDriveStatus();
+    expect(st2.configuredDir).toBe(altCloud);
+
+    // Restore primary cloud root and test duplicate concurrent upload guard using a sizeable temp file
+    updateSettings({ googleDriveDir: cloudRoot });
+    const localSeriesDir = path.join(localRoot, '并发防重测试番');
+    const bigFile = path.join(localSeriesDir, 'ep01.mkv');
+    fs.mkdirSync(localSeriesDir, { recursive: true });
+    fs.writeFileSync(bigFile, Buffer.alloc(4 * 1024 * 1024, 1));
+
+    const first = await uploadLibraryToCloud({
+      kind: 'series',
+      seriesId: 'concurrent-guard-series',
+      seriesTitle: '并发防重测试番',
+      folderPath: localSeriesDir,
+      filePaths: [bigFile],
+      deleteLocal: false,
+      background: true,
+    });
+    expect(first.ok).toBe(true);
+
+    const dup = await uploadLibraryToCloud({
+      kind: 'series',
+      seriesId: 'concurrent-guard-series',
+      seriesTitle: '并发防重测试番',
+      folderPath: localSeriesDir,
+      filePaths: [bigFile],
+      deleteLocal: false,
+      background: true,
+    });
+    expect(dup.ok).toBe(false);
+    expect(dup.error).toContain('正在上传中');
+
+    // Wait briefly for background job completion before afterEach removes tmpDir
+    for (let i = 0; i < 20; i += 1) {
+      const active = listCloudJobs().some((j) => j.id === first.jobId && j.status === 'copying');
+      if (!active) break;
+      await new Promise((r) => setTimeout(r, 40));
+    }
   });
 });

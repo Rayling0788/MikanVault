@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { app, BrowserWindow, net, protocol, shell } from 'electron';
 import { registerIpcHandlers } from './services/ipcHandlers';
+import { getImageCacheDir } from './services/configStore';
 import {
   startCloudTransferWatcher,
   stopCloudTransferWatcher,
@@ -27,12 +29,10 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
-
-function getImageCacheDir(): string {
-  const dir = path.join(app.getPath('userData'), 'image-cache');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+const inFlightImageFetches = new Map<
+  string,
+  Promise<{ bytes: Uint8Array<ArrayBuffer>; contentType: string } | { status: number }>
+>();
 
 function guessMimeFromExt(ext: string): string {
   switch (ext.toLowerCase()) {
@@ -51,6 +51,70 @@ function guessMimeFromExt(ext: string): string {
   }
 }
 
+async function pruneImageCache(maxEntries = 600, maxTotalBytes = 120 * 1024 * 1024): Promise<void> {
+  try {
+    const cacheDir = getImageCacheDir();
+    const names = await fsp.readdir(cacheDir);
+    const binNames = names.filter((n) => n.endsWith('.bin'));
+    if (binNames.length <= maxEntries) {
+      let quickBytes = 0;
+      const statsList = await Promise.all(
+        binNames.map(async (name) => {
+          try {
+            const st = await fsp.stat(path.join(cacheDir, name));
+            quickBytes += st.size;
+            return { name, size: st.size, mtimeMs: st.mtimeMs };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (quickBytes <= maxTotalBytes) return;
+      const valid = statsList.filter(
+        (x): x is { name: string; size: number; mtimeMs: number } => x !== null,
+      );
+      valid.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      let remainingBytes = quickBytes;
+      for (const item of valid) {
+        if (remainingBytes <= maxTotalBytes) break;
+        const hash = item.name.slice(0, -4);
+        await fsp.rm(path.join(cacheDir, item.name), { force: true }).catch(() => {});
+        await fsp.rm(path.join(cacheDir, `${hash}.meta.json`), { force: true }).catch(() => {});
+        remainingBytes -= item.size;
+      }
+      return;
+    }
+
+    const statsList = (
+      await Promise.all(
+        binNames.map(async (name) => {
+          try {
+            const st = await fsp.stat(path.join(cacheDir, name));
+            return { name, size: st.size, mtimeMs: st.mtimeMs };
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((x): x is { name: string; size: number; mtimeMs: number } => x !== null);
+
+    statsList.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let totalBytes = statsList.reduce((sum, s) => sum + s.size, 0);
+    let remainingCount = statsList.length;
+
+    for (const item of statsList) {
+      if (remainingCount <= maxEntries && totalBytes <= maxTotalBytes) break;
+      const hash = item.name.slice(0, -4);
+      await fsp.rm(path.join(cacheDir, item.name), { force: true }).catch(() => {});
+      await fsp.rm(path.join(cacheDir, `${hash}.meta.json`), { force: true }).catch(() => {});
+      remainingCount -= 1;
+      totalBytes -= item.size;
+    }
+  } catch {
+    // Non-fatal cache prune failure
+  }
+}
+
 function registerMikanImageProtocol(): void {
   protocol.handle('mikan-img', async (request) => {
     try {
@@ -65,52 +129,76 @@ function registerMikanImageProtocol(): void {
       const cacheDataPath = path.join(cacheDir, `${hash}.bin`);
       const cacheMetaPath = path.join(cacheDir, `${hash}.meta.json`);
 
-      if (fs.existsSync(cacheDataPath) && fs.existsSync(cacheMetaPath)) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(cacheMetaPath, 'utf-8')) as { contentType?: string };
-          const buf = fs.readFileSync(cacheDataPath);
-          return new Response(buf, {
-            status: 200,
-            headers: {
-              'Content-Type': meta.contentType || 'image/jpeg',
-              'Cache-Control': 'public, max-age=604800',
-            },
-          });
-        } catch {
-          // Cache read failed; fall through to re-fetch
-        }
-      }
-
-      const parsedTarget = new URL(targetUrl);
-      const res = await net.fetch(targetUrl, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-          Referer: `${parsedTarget.origin}/`,
-          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        },
-      });
-
-      if (!res.ok) {
-        return new Response('Image fetch failed', { status: res.status });
-      }
-
-      const arrayBuf = await res.arrayBuffer();
-      const buf = Buffer.from(arrayBuf);
-      const contentType =
-        res.headers.get('content-type') || guessMimeFromExt(path.extname(parsedTarget.pathname));
-
       try {
-        fs.writeFileSync(cacheDataPath, buf);
-        fs.writeFileSync(cacheMetaPath, JSON.stringify({ contentType, url: targetUrl }));
+        const [metaRaw, buf] = await Promise.all([
+          fsp.readFile(cacheMetaPath, 'utf-8'),
+          fsp.readFile(cacheDataPath),
+        ]);
+        const meta = JSON.parse(metaRaw) as { contentType?: string };
+        return new Response(buf, {
+          status: 200,
+          headers: {
+            'Content-Type': meta.contentType || 'image/jpeg',
+            'Cache-Control': 'public, max-age=604800',
+          },
+        });
       } catch {
-        // Ignore disk cache write errors
+        // Cache miss or read failed; fetch from network
       }
 
-      return new Response(buf, {
+      let fetchPromise = inFlightImageFetches.get(hash);
+      if (!fetchPromise) {
+        fetchPromise = (async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 15000);
+          try {
+            const parsedTarget = new URL(targetUrl);
+            const res = await net.fetch(targetUrl, {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+                Referer: `${parsedTarget.origin}/`,
+                Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+              },
+              signal: controller.signal,
+            });
+
+            if (!res.ok) {
+              return { status: res.status };
+            }
+
+            const arrayBuf = await res.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuf);
+            const contentType =
+              (res.headers.get('content-type') || '').split(';')[0].trim() ||
+              guessMimeFromExt(path.extname(parsedTarget.pathname));
+
+            void Promise.all([
+              fsp.writeFile(cacheDataPath, bytes),
+              fsp.writeFile(cacheMetaPath, JSON.stringify({ contentType, url: targetUrl })),
+            ]).catch(() => {});
+
+            return { bytes, contentType };
+          } finally {
+            clearTimeout(timer);
+          }
+        })().finally(() => {
+          if (inFlightImageFetches.get(hash) === fetchPromise) {
+            inFlightImageFetches.delete(hash);
+          }
+        });
+        inFlightImageFetches.set(hash, fetchPromise);
+      }
+
+      const result = await fetchPromise;
+      if ('status' in result) {
+        return new Response('Image fetch failed', { status: result.status });
+      }
+
+      return new Response(result.bytes, {
         status: 200,
         headers: {
-          'Content-Type': contentType,
+          'Content-Type': result.contentType,
           'Cache-Control': 'public, max-age=604800',
         },
       });
@@ -209,6 +297,10 @@ if (!gotSingleInstanceLock) {
     mainWindow = createMainWindow();
     startSubscriptionScheduler();
     startCloudTransferWatcher();
+    const pruneTimer = setTimeout(() => {
+      void pruneImageCache();
+    }, 15_000);
+    pruneTimer.unref?.();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

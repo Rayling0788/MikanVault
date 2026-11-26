@@ -26,7 +26,7 @@ interface PosterImageProps {
   compactFallback?: boolean;
 }
 
-export const PosterImage: React.FC<PosterImageProps> = ({
+export const PosterImage: React.FC<PosterImageProps> = React.memo(({
   url,
   title,
   className = '',
@@ -61,7 +61,9 @@ export const PosterImage: React.FC<PosterImageProps> = ({
 
   return (
     <div className={`poster-surface relative overflow-hidden ${className}`}>
-      {loading && !src && <div className="skeleton-shimmer absolute inset-0" />}
+      {(loading || (!loaded && !showFallback)) && (
+        <div className="skeleton-shimmer absolute inset-0" />
+      )}
 
       {!showFallback && src && (
         <img
@@ -120,4 +122,6 @@ export const PosterImage: React.FC<PosterImageProps> = ({
       )}
     </div>
   );
-};
+});
+
+PosterImage.displayName = 'PosterImage';

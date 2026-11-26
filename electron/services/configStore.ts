@@ -56,6 +56,14 @@ let cachedSettings: AppSettings | null = null;
 let cachedSettingsSig: string | null = null;
 let cachedMetadata: MetadataStore | null = null;
 let cachedMetadataSig: string | null = null;
+let cachedDriveMount: {
+  value: { mountRoot?: string; defaultTargetDir?: string };
+  expiresAt: number;
+} | null = null;
+let atomicWriteSeq = 0;
+
+const DRIVE_MOUNT_CACHE_TTL_MS = 15_000;
+const MAX_DOWNLOADS_META_ENTRIES = 400;
 
 function getFileSignature(filePath: string): string | null {
   try {
@@ -97,6 +105,11 @@ export function setDataDirForTesting(dir: string | null): void {
   cachedSettingsSig = null;
   cachedMetadata = null;
   cachedMetadataSig = null;
+  cachedDriveMount = null;
+}
+
+export function invalidateGoogleDriveMountCache(): void {
+  cachedDriveMount = null;
 }
 
 export function getDataDir(): string {
@@ -229,18 +242,27 @@ export function readQbIniDefaults(iniPath?: string): QbIniDefaults {
   };
 }
 
-export function detectGoogleDriveMount(): { mountRoot?: string; defaultTargetDir?: string } {
+export function detectGoogleDriveMount(
+  forceRefresh = false,
+): { mountRoot?: string; defaultTargetDir?: string } {
+  const now = Date.now();
+  if (!forceRefresh && cachedDriveMount && cachedDriveMount.expiresAt > now) {
+    return { ...cachedDriveMount.value };
+  }
+
+  let detected: { mountRoot?: string; defaultTargetDir?: string } = {};
   if (process.platform === 'win32') {
     const driveLetters = 'DEFGHIJKLMNOPQRSTUVWXYZ';
-    for (const letter of driveLetters) {
+    outer: for (const letter of driveLetters) {
       for (const folderName of ['我的云端硬盘', 'My Drive']) {
         const candidate = `${letter}:\\${folderName}`;
         try {
           if (fs.existsSync(candidate)) {
-            return {
+            detected = {
               mountRoot: candidate,
               defaultTargetDir: path.join(candidate, 'MikanVault'),
             };
+            break outer;
           }
         } catch {
           // Ignore unreadable drives
@@ -248,7 +270,12 @@ export function detectGoogleDriveMount(): { mountRoot?: string; defaultTargetDir
       }
     }
   }
-  return {};
+
+  cachedDriveMount = {
+    value: detected,
+    expiresAt: now + DRIVE_MOUNT_CACHE_TTL_MS,
+  };
+  return { ...detected };
 }
 
 export function buildDefaultSettings(): AppSettings {
@@ -286,7 +313,8 @@ function writeJsonAtomic(filePath: string, data: unknown): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   const payload = JSON.stringify(data, null, 2);
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  atomicWriteSeq = (atomicWriteSeq + 1) % 1_000_000;
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${atomicWriteSeq}.tmp`;
   try {
     fs.writeFileSync(tmpPath, payload, 'utf-8');
     fs.renameSync(tmpPath, filePath);
@@ -307,13 +335,14 @@ function sanitizeBaseUrl(url: string): string {
 }
 
 export function getSettings(): AppSettings {
-  const defaults = buildDefaultSettings();
   const filePath = getSettingsFilePath();
   const currentSig = getFileSignature(filePath);
 
   if (cachedSettings && currentSig !== null && currentSig === cachedSettingsSig) {
     return { ...cachedSettings, extraLibraryDirs: [...cachedSettings.extraLibraryDirs] };
   }
+
+  const defaults = buildDefaultSettings();
 
   if (fs.existsSync(filePath)) {
     try {
@@ -477,6 +506,14 @@ export function recordDownloadMeta(entry: Omit<DownloadMetaRecord, 'addedAt'>): 
   }
   const titleKey = `title:${entry.title.trim().toLowerCase()}`;
   store.downloadsMap[titleKey] = record;
+
+  const dlKeys = Object.keys(store.downloadsMap);
+  if (dlKeys.length > MAX_DOWNLOADS_META_ENTRIES) {
+    const sorted = Object.entries(store.downloadsMap)
+      .sort((a, b) => (b[1].addedAt || 0) - (a[1].addedAt || 0))
+      .slice(0, MAX_DOWNLOADS_META_ENTRIES);
+    store.downloadsMap = Object.fromEntries(sorted);
+  }
 
   if (entry.savePath && (entry.bangumiTitle || entry.coverUrl || entry.bangumiId)) {
     const folderKey = normalizePathKey(entry.savePath);
@@ -652,6 +689,30 @@ export function restoreAllHidden(): void {
   store.hiddenSeriesIds = [];
   store.hiddenFilePaths = [];
   saveMetadata(store);
+}
+
+export function getLibraryMetadataSnapshot(): {
+  hiddenSeriesSet: Set<string>;
+  hiddenFileSet: Set<string>;
+  watchedMap: Record<string, WatchedRecord>;
+  seriesMetaMap: Record<string, SeriesMetaRecord>;
+  titleMetaMap: Map<string, SeriesMetaRecord>;
+} {
+  const store = getMetadata();
+  const titleMetaMap = new Map<string, SeriesMetaRecord>();
+  for (const record of Object.values(store.seriesMetaMap)) {
+    const key = record.title.trim().toLowerCase();
+    if (key && !titleMetaMap.has(key)) {
+      titleMetaMap.set(key, record);
+    }
+  }
+  return {
+    hiddenSeriesSet: new Set(store.hiddenSeriesIds),
+    hiddenFileSet: new Set(store.hiddenFilePaths),
+    watchedMap: store.watchedMap,
+    seriesMetaMap: store.seriesMetaMap,
+    titleMetaMap,
+  };
 }
 
 export function getSubscriptions(): SubscriptionItem[] {

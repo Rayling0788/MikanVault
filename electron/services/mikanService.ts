@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import * as cheerio from 'cheerio';
 import { XMLParser } from 'fast-xml-parser';
@@ -25,6 +26,14 @@ const DEFAULT_UA =
 
 const SCHEDULE_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0, 7, 8];
 const MAX_SEARCH_RELEASES = 200;
+const rssXmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  removeNSPrefix: true,
+  parseTagValue: false,
+  trimValues: true,
+});
+const inFlightProxyImages = new Map<string, Promise<string>>();
 
 function getDefaultFetch(): FetchLike {
   if (process.versions?.electron) {
@@ -613,15 +622,7 @@ export function parseSearchHtml(
 }
 
 export function parseRssXml(xml: string, baseUrl: string): MikanRelease[] {
-  const parser = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    removeNSPrefix: true,
-    parseTagValue: false,
-    trimValues: true,
-  });
-
-  const doc = parser.parse(xml) as {
+  const doc = rssXmlParser.parse(xml) as {
     rss?: {
       channel?: {
         item?: Record<string, unknown> | Record<string, unknown>[];
@@ -949,51 +950,73 @@ export async function proxyImage(url: string, fetchFn?: FetchLike): Promise<stri
     return '';
   }
 
-  const hash = crypto.createHash('sha1').update(url).digest('hex');
-  const cacheDir = getImageCacheDir();
-  const dataPath = path.join(cacheDir, `${hash}.bin`);
-  const metaPath = path.join(cacheDir, `${hash}.meta.json`);
+  if (!fetchFn) {
+    const existing = inFlightProxyImages.get(url);
+    if (existing) return existing;
+  }
 
-  if (fs.existsSync(dataPath) && fs.existsSync(metaPath)) {
+  const run = async (): Promise<string> => {
+    const hash = crypto.createHash('sha1').update(url).digest('hex');
+    const cacheDir = getImageCacheDir();
+    const dataPath = path.join(cacheDir, `${hash}.bin`);
+    const metaPath = path.join(cacheDir, `${hash}.meta.json`);
+
     try {
-      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { contentType?: string };
-      const buf = fs.readFileSync(dataPath);
+      const [metaRaw, buf] = await Promise.all([
+        fsp.readFile(metaPath, 'utf-8'),
+        fsp.readFile(dataPath),
+      ]);
+      const meta = JSON.parse(metaRaw) as { contentType?: string };
       const mime = meta.contentType || 'image/jpeg';
       return `data:${mime};base64,${buf.toString('base64')}`;
     } catch {
-      // Re-fetch on cache read failure
+      // Cache miss or read failure; fetch from network
     }
-  }
-
-  try {
-    const parsed = new URL(url);
-    const res = await mikanFetch(
-      url,
-      {
-        headers: {
-          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        },
-      },
-      fetchFn,
-    );
-    if (!res.ok) {
-      return '';
-    }
-    const arrayBuffer = await res.arrayBuffer();
-    const buf = Buffer.from(arrayBuffer);
-    const contentType =
-      (res.headers.get('content-type') || '').split(';')[0].trim() ||
-      guessMimeFromExt(path.extname(parsed.pathname));
 
     try {
-      fs.writeFileSync(dataPath, buf);
-      fs.writeFileSync(metaPath, JSON.stringify({ contentType, url }));
-    } catch {
-      // Ignore cache write errors
-    }
+      const parsed = new URL(url);
+      const res = await mikanFetch(
+        url,
+        {
+          headers: {
+            Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          },
+        },
+        fetchFn,
+      );
+      if (!res.ok) {
+        return '';
+      }
+      const arrayBuffer = await res.arrayBuffer();
+      const buf = Buffer.from(arrayBuffer);
+      const contentType =
+        (res.headers.get('content-type') || '').split(';')[0].trim() ||
+        guessMimeFromExt(path.extname(parsed.pathname));
 
-    return `data:${contentType};base64,${buf.toString('base64')}`;
-  } catch {
-    return '';
+      try {
+        await Promise.all([
+          fsp.writeFile(dataPath, buf),
+          fsp.writeFile(metaPath, JSON.stringify({ contentType, url })),
+        ]);
+      } catch {
+        // Ignore cache write errors
+      }
+
+      return `data:${contentType};base64,${buf.toString('base64')}`;
+    } catch {
+      return '';
+    }
+  };
+
+  if (fetchFn) {
+    return run();
   }
+
+  const promise = run().finally(() => {
+    if (inFlightProxyImages.get(url) === promise) {
+      inFlightProxyImages.delete(url);
+    }
+  });
+  inFlightProxyImages.set(url, promise);
+  return promise;
 }

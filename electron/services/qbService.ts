@@ -47,9 +47,16 @@ interface RawQbTorrent {
 }
 
 const sidCache = new Map<string, string>();
+const inFlightLogins = new Map<string, Promise<string | undefined>>();
+let cachedQbProcess: { running: boolean; expiresAt: number } | null = null;
+let inFlightProcessCheck: Promise<boolean> | null = null;
+const QB_PROCESS_CACHE_TTL_MS = 10_000;
 
 export function clearQbSessionCache(): void {
   sidCache.clear();
+  inFlightLogins.clear();
+  cachedQbProcess = null;
+  inFlightProcessCheck = null;
 }
 
 export function sanitizeFolderName(name: string): string {
@@ -97,10 +104,11 @@ async function qbRawFetch(
   url: string,
   init: RequestInit,
   fetchFn?: FetchLike,
+  timeoutMs = 12000,
 ): Promise<Response> {
   const impl = fetchFn ?? ((input: string, reqInit?: RequestInit) => fetch(input, reqInit));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await impl(url, {
       ...init,
@@ -118,39 +126,65 @@ export class QbAuthError extends Error {
   }
 }
 
-async function loginToQb(config: QbAuthConfig, fetchFn?: FetchLike): Promise<string | undefined> {
-  const body = new URLSearchParams({
-    username: config.qbUsername,
-    password: config.qbPassword,
-  });
+async function loginToQb(
+  config: QbAuthConfig,
+  fetchFn?: FetchLike,
+  timeoutMs = 12000,
+): Promise<string | undefined> {
+  const cacheKey = getCacheKey(config);
+  const existing = inFlightLogins.get(cacheKey);
+  if (existing && !fetchFn) {
+    return existing;
+  }
 
-  const res = await qbRawFetch(
-    `${config.qbUrl}/api/v2/auth/login`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Referer: config.qbUrl,
+  const doLogin = async (): Promise<string | undefined> => {
+    const body = new URLSearchParams({
+      username: config.qbUsername,
+      password: config.qbPassword,
+    });
+
+    const res = await qbRawFetch(
+      `${config.qbUrl}/api/v2/auth/login`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Referer: config.qbUrl,
+        },
+        body: body.toString(),
       },
-      body: body.toString(),
-    },
-    fetchFn,
-  );
-
-  const text = (await res.text()).trim();
-  if (!res.ok || text.toLowerCase().includes('fails')) {
-    throw new QbAuthError(
-      res.status === 403
-        ? 'qBittorrent 登录被拒绝（尝试次数过多或密码错误）'
-        : 'qBittorrent WebUI 认证失败，请检查用户名和密码',
+      fetchFn,
+      timeoutMs,
     );
+
+    const text = (await res.text()).trim();
+    if (!res.ok || text.toLowerCase().includes('fails')) {
+      throw new QbAuthError(
+        res.status === 403
+          ? 'qBittorrent 登录被拒绝（尝试次数过多或密码错误）'
+          : 'qBittorrent WebUI 认证失败，请检查用户名和密码',
+      );
+    }
+
+    const sid = extractSidCookie(res);
+    if (sid) {
+      sidCache.set(cacheKey, sid);
+    }
+    return sid;
+  };
+
+  // Deduplicate concurrent login attempts even when tests inject shared mock fetchFn
+  if (existing) {
+    return existing;
   }
 
-  const sid = extractSidCookie(res);
-  if (sid) {
-    sidCache.set(getCacheKey(config), sid);
-  }
-  return sid;
+  const loginPromise = doLogin().finally(() => {
+    if (inFlightLogins.get(cacheKey) === loginPromise) {
+      inFlightLogins.delete(cacheKey);
+    }
+  });
+  inFlightLogins.set(cacheKey, loginPromise);
+  return loginPromise;
 }
 
 async function requestQbApi(
@@ -158,11 +192,12 @@ async function requestQbApi(
   init: RequestInit,
   config: QbAuthConfig,
   fetchFn?: FetchLike,
+  timeoutMs = 12000,
 ): Promise<Response> {
   const cacheKey = getCacheKey(config);
   let sid = sidCache.get(cacheKey);
   if (!sid) {
-    sid = await loginToQb(config, fetchFn);
+    sid = await loginToQb(config, fetchFn, timeoutMs);
   }
 
   const buildHeaders = (cookie?: string): Record<string, string> => {
@@ -183,11 +218,12 @@ async function requestQbApi(
       headers: buildHeaders(sid),
     },
     fetchFn,
+    timeoutMs,
   );
 
   if (res.status === 403) {
     sidCache.delete(cacheKey);
-    sid = await loginToQb(config, fetchFn);
+    sid = await loginToQb(config, fetchFn, timeoutMs);
     res = await qbRawFetch(
       `${config.qbUrl}${apiPath}`,
       {
@@ -195,28 +231,45 @@ async function requestQbApi(
         headers: buildHeaders(sid),
       },
       fetchFn,
+      timeoutMs,
     );
   }
 
   return res;
 }
 
-export async function isQbProcessRunning(): Promise<boolean> {
+export async function isQbProcessRunning(force = false): Promise<boolean> {
   if (process.platform !== 'win32') return false;
-  return new Promise((resolve) => {
+  const now = Date.now();
+  if (!force && cachedQbProcess && cachedQbProcess.expiresAt > now) {
+    return cachedQbProcess.running;
+  }
+  if (!force && inFlightProcessCheck) {
+    return inFlightProcessCheck;
+  }
+
+  const checkPromise = new Promise<boolean>((resolve) => {
     execFile(
       'tasklist',
       ['/FI', 'IMAGENAME eq qbittorrent.exe', '/NH'],
       { timeout: 3000 },
       (err, stdout) => {
-        if (err) {
-          resolve(false);
-          return;
-        }
-        resolve(stdout.toLowerCase().includes('qbittorrent.exe'));
+        const running = err ? false : stdout.toLowerCase().includes('qbittorrent.exe');
+        cachedQbProcess = {
+          running,
+          expiresAt: Date.now() + QB_PROCESS_CACHE_TTL_MS,
+        };
+        resolve(running);
       },
     );
+  }).finally(() => {
+    if (inFlightProcessCheck === checkPromise) {
+      inFlightProcessCheck = null;
+    }
   });
+
+  inFlightProcessCheck = checkPromise;
+  return checkPromise;
 }
 
 export function detectQbWebUiBindFailure(portHint?: string): string | null {
@@ -230,8 +283,11 @@ export function detectQbWebUiBindFailure(portHint?: string): string | null {
     const readSize = Math.min(stat.size, 8192);
     const fd = fs.openSync(logPath, 'r');
     const buf = Buffer.alloc(readSize);
-    fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
-    fs.closeSync(fd);
+    try {
+      fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+    } finally {
+      fs.closeSync(fd);
+    }
     const tail = buf.toString('utf-8');
     const lines = tail.split(/\r?\n/).filter(Boolean).slice(-60);
     // Walk from newest to oldest for the latest WebUI status line
@@ -265,7 +321,7 @@ export async function testConnection(
     if (override) {
       sidCache.delete(getCacheKey(config));
     }
-    const res = await requestQbApi('/api/v2/app/version', { method: 'GET' }, config, fetchFn);
+    const res = await requestQbApi('/api/v2/app/version', { method: 'GET' }, config, fetchFn, 4500);
     if (!res.ok) {
       return {
         ok: false,
@@ -293,7 +349,7 @@ export async function testConnection(
         exeExists,
       };
     }
-    const qbRunning = fetchFn ? false : await isQbProcessRunning();
+    const qbRunning = fetchFn ? false : await isQbProcessRunning(Boolean(override));
     let bindError: string | null = null;
     if (qbRunning && !fetchFn) {
       let portHint: string | undefined;
@@ -320,7 +376,7 @@ export async function launchQbittorrent(): Promise<QbLaunchResult> {
   const settings = getSettings();
   const exePath = settings.qbExePath?.trim();
 
-  if (await isQbProcessRunning()) {
+  if (await isQbProcessRunning(true)) {
     return { ok: true, alreadyRunning: true };
   }
 

@@ -528,15 +528,13 @@ export async function checkSubscriptions(
       : list.filter((s) => s.enabled);
 
     const summaryItems: SubscriptionCheckSummary['items'] = [];
+    const updatedById = new Map<string, SubscriptionItem>();
     let newDownloads = 0;
     let errors = 0;
 
     for (const sub of targets) {
       const { updated, added, error } = await checkSingleSubscription(sub, deps);
-      const idx = list.findIndex((x) => x.id === sub.id);
-      if (idx >= 0) {
-        list[idx] = updated;
-      }
+      updatedById.set(sub.id, updated);
       newDownloads += added;
       if (error) errors += 1;
       summaryItems.push({
@@ -547,7 +545,32 @@ export async function checkSubscriptions(
       });
     }
 
-    saveSubscriptions(list);
+    // Re-read store before saving so user edits/additions/deletions made during async RSS checks are never overwritten
+    const latestList = getSubscriptions();
+    const mergedList = latestList.map((current) => {
+      const checked = updatedById.get(current.id);
+      if (!checked) return current;
+      const mergedDownloaded = Array.from(
+        new Set([...current.downloadedReleaseIds, ...checked.downloadedReleaseIds]),
+      );
+      return {
+        ...current,
+        downloadedReleaseIds: mergedDownloaded,
+        totalAutoDownloaded: Math.max(current.totalAutoDownloaded, checked.totalAutoDownloaded),
+        lastDownloadedEpisode:
+          checked.lastDownloadedEpisode !== undefined
+            ? Math.max(current.lastDownloadedEpisode ?? 0, checked.lastDownloadedEpisode)
+            : current.lastDownloadedEpisode,
+        lastTriggeredAt:
+          checked.lastTriggeredAt !== undefined
+            ? Math.max(current.lastTriggeredAt ?? 0, checked.lastTriggeredAt)
+            : current.lastTriggeredAt,
+        lastCheckedAt: checked.lastCheckedAt,
+        lastError: checked.lastError,
+      };
+    });
+
+    saveSubscriptions(mergedList);
     broadcastSubscriptionsUpdated();
 
     return {

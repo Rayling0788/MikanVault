@@ -15,6 +15,20 @@ export interface UseCloudStatusResult {
   refresh: () => Promise<void>;
 }
 
+function getCloudStatusSignature(s: CloudDriveStatus): string {
+  return `${s.detected}|${s.mountRoot || ''}|${s.defaultTargetDir || ''}|${s.configuredDir}|${s.configuredAccessible}|${s.freeBytes ?? ''}|${s.totalBytes ?? ''}`;
+}
+
+function getCloudJobsSignature(list: CloudTransferJob[]): string {
+  if (list.length === 0) return '0';
+  return list
+    .map(
+      (j) =>
+        `${j.id}:${j.status}:${j.cancelling ? 1 : 0}:${(j.progress || 0).toFixed(4)}:${j.transferredBytes || 0}:${j.speedBytesPerSec || 0}:${j.copiedFiles || 0}:${j.currentFileName || ''}:${j.error || ''}`,
+    )
+    .join('|');
+}
+
 export function useCloudStatus(
   fastPolling: boolean,
   onUploadCompleted?: () => void,
@@ -26,6 +40,8 @@ export function useCloudStatus(
   const initializedRef = useRef(false);
   const prevCompletedRef = useRef(0);
   const onCompletedRef = useRef(onUploadCompleted);
+  const lastStatusSigRef = useRef<string | null>(null);
+  const lastJobsSigRef = useRef<string>('0');
 
   useEffect(() => {
     onCompletedRef.current = onUploadCompleted;
@@ -39,9 +55,18 @@ export function useCloudStatus(
         api.cloudGetStatus(),
         api.cloudListJobs(),
       ]);
-      setStatus(nextStatus);
+      const nextStatusSig = getCloudStatusSignature(nextStatus);
+      if (nextStatusSig !== lastStatusSigRef.current) {
+        lastStatusSigRef.current = nextStatusSig;
+        setStatus(nextStatus);
+      }
+
       const safeJobs = Array.isArray(nextJobs) ? nextJobs : [];
-      setJobs(safeJobs);
+      const nextJobsSig = getCloudJobsSignature(safeJobs);
+      if (nextJobsSig !== lastJobsSigRef.current) {
+        lastJobsSigRef.current = nextJobsSig;
+        setJobs(safeJobs);
+      }
 
       const completedNow = safeJobs.filter((j) => j.status === 'completed').length;
       if (initializedRef.current && completedNow > prevCompletedRef.current) {
@@ -101,7 +126,7 @@ export function useCloudStatus(
   }, [jobs]);
 
   useEffect(() => {
-    const intervalMs = fastPolling || activeCount > 0 ? 1500 : 5000;
+    const intervalMs = fastPolling || activeCount > 0 ? 1500 : queuedCount > 0 ? 4000 : 12000;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void refresh();
@@ -119,7 +144,7 @@ export function useCloudStatus(
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [fastPolling, activeCount, refresh]);
+  }, [fastPolling, activeCount, queuedCount, refresh]);
 
   return {
     status,
