@@ -1,6 +1,7 @@
 /* MikanVault Cinema Editorial Styles (Dual Theme: Dark Cinema + Frosted Daylight) */
 
 .app-canvas-glow {
+  position: relative;
   background:
     radial-gradient(960px 460px at 18% -10%, rgba(255, 122, 47, 0.085) 0%, rgba(255, 122, 47, 0) 65%),
     radial-gradient(680px 380px at 88% -4%, rgba(56, 189, 248, 0.05) 0%, rgba(56, 189, 248, 0) 60%),
@@ -8,11 +9,25 @@
   color: var(--mv-text);
 }
 
+.app-canvas-glow::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
 html[data-theme="light"] .app-canvas-glow {
   background:
     radial-gradient(980px 440px at 18% -12%, rgba(255, 138, 76, 0.14) 0%, rgba(255, 138, 76, 0) 65%),
     radial-gradient(720px 380px at 90% -6%, rgba(56, 189, 248, 0.12) 0%, rgba(56, 189, 248, 0) 60%),
     var(--mv-canvas);
+}
+
+html[data-theme="light"] .app-canvas-glow::before {
+  opacity: 0.014;
 }
 
 .surface-sidebar {
@@ -201,8 +216,142 @@ html[data-theme="light"] .poster-card:hover {
   transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.poster-card:hover .poster-img {
+.poster-card:hover .poster-img,
+.poster-tile:hover .poster-img {
   transform: scale(1.05);
+}
+
+/* Apple TV / Infuse Gallery Unobstructed Poster Frame */
+.poster-frame {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  background-color: #12151C;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 14px 28px -12px rgba(0, 0, 0, 0.72);
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 240ms ease,
+    box-shadow 280ms ease;
+}
+
+.poster-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0) 38%
+  );
+  opacity: 0.45;
+  transition: opacity 240ms ease;
+}
+
+.poster-tile:hover .poster-frame {
+  transform: translateY(-5px);
+  border-color: rgba(255, 122, 47, 0.58);
+  box-shadow:
+    0 24px 44px -14px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(255, 122, 47, 0.24),
+    0 0 26px -6px rgba(255, 122, 47, 0.24);
+}
+
+.poster-tile:hover .poster-frame::after {
+  opacity: 0.85;
+}
+
+html[data-theme="light"] .poster-frame {
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 12px 26px -10px rgba(15, 23, 42, 0.2);
+}
+
+html[data-theme="light"] .poster-tile:hover .poster-frame {
+  border-color: rgba(234, 88, 12, 0.65);
+  box-shadow:
+    0 22px 40px -12px rgba(15, 23, 42, 0.26),
+    0 0 0 1px rgba(234, 88, 12, 0.24);
+}
+
+/* Sunken Segmented Filter Dock */
+.segmented-dock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 9999px;
+  background: rgba(9, 11, 16, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="light"] .segmented-dock {
+  background: rgba(15, 23, 42, 0.055);
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.segmented-tab {
+  color: #94A3B8;
+  transition: all 160ms ease;
+}
+
+.segmented-tab:hover {
+  color: #F8FAFC;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="light"] .segmented-tab {
+  color: #475569;
+}
+
+html[data-theme="light"] .segmented-tab:hover {
+  color: #0F172A;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.segmented-tab-active {
+  background: linear-gradient(135deg, #FF7A2F 0%, #FF9E4F 100%);
+  color: #0B0D11;
+  font-weight: 600;
+  box-shadow:
+    0 4px 14px rgba(255, 122, 47, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme="light"] .segmented-tab-active {
+  background: linear-gradient(135deg, #EA580C 0%, #F97316 100%);
+  color: #FFFFFF;
+}
+
+.segmented-tab-active-sky {
+  background: linear-gradient(135deg, #0EA5E9 0%, #38BDF8 100%);
+  color: #0B0D11;
+  font-weight: 600;
+  box-shadow:
+    0 4px 14px rgba(56, 189, 248, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme="light"] .segmented-tab-active-sky {
+  background: linear-gradient(135deg, #0284C7 0%, #0EA5E9 100%);
+  color: #FFFFFF;
+}
+
+@keyframes hero-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-hero-progress {
+  transform-origin: left center;
+  animation: hero-progress 8s linear forwards;
 }
 
 .input-cinema {

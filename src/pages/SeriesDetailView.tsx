@@ -275,11 +275,14 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
         </div>
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">
-          <PosterImage
-            url={series.coverUrl}
-            title={series.title}
-            className="h-[224px] w-[168px] shrink-0 rounded-2xl border border-white/[0.14] shadow-[0_24px_50px_rgba(0,0,0,0.85)]"
-          />
+          <div className="relative shrink-0">
+            <div className="pointer-events-none absolute -inset-3 rounded-3xl bg-[#FF7A2F]/18 opacity-65 blur-2xl" />
+            <PosterImage
+              url={series.coverUrl}
+              title={series.title}
+              className="relative h-[224px] w-[168px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_24px_54px_rgba(0,0,0,0.88)]"
+            />
+          </div>
 
           <div className="min-w-0 flex-1 space-y-3.5 pb-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -464,34 +467,32 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
       {/* Episode List / Grid */}
       <div className="mx-auto max-w-[1320px] space-y-4 px-6 pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="mr-1 text-[15px] font-semibold text-white">剧集列表</h2>
-            {(
-              [
-                { id: 'all', label: '全部', count: sortedEpisodes.length },
-                { id: 'unwatched', label: '未看', count: unwatchedCount },
-                { id: 'watched', label: '已看', count: watchedCount },
-              ] as const
-            ).map((tab) => {
-              const active = episodeFilter === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setEpisodeFilter(tab.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition tabular-nums ${
-                    active
-                      ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
-                      : 'border border-white/[0.08] bg-[#12151C] text-slate-300 hover:border-white/[0.16] hover:text-white'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span className={`text-[11px] ${active ? 'opacity-80' : 'text-slate-500'}`}>
-                    {tab.count}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-[15px] font-semibold text-white">剧集列表</h2>
+            <div className="segmented-dock">
+              {(
+                [
+                  { id: 'all', label: '全部', count: sortedEpisodes.length },
+                  { id: 'unwatched', label: '未看', count: unwatchedCount },
+                  { id: 'watched', label: '已看', count: watchedCount },
+                ] as const
+              ).map((tab) => {
+                const active = episodeFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setEpisodeFilter(tab.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] tabular-nums ${
+                      active ? 'segmented-tab-active' : 'segmented-tab font-medium'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className="text-[11px] opacity-75">{tab.count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex items-center gap-3">

@@ -243,12 +243,15 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
         </div>
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">
-          {/* Crisp 3:4 Poster */}
-          <PosterImage
-            url={coverUrl}
-            title={title}
-            className="h-[228px] w-[171px] shrink-0 rounded-2xl border border-white/[0.14] shadow-[0_24px_50px_rgba(0,0,0,0.85)]"
-          />
+          {/* Crisp 3:4 Poster with Luminous Depth */}
+          <div className="relative shrink-0">
+            <div className="pointer-events-none absolute -inset-3 rounded-3xl bg-[#FF7A2F]/18 opacity-65 blur-2xl" />
+            <PosterImage
+              url={coverUrl}
+              title={title}
+              className="relative h-[228px] w-[171px] rounded-2xl border border-white/[0.18] ring-1 ring-white/15 shadow-[0_24px_54px_rgba(0,0,0,0.88)]"
+            />
+          </div>
 
           {/* Metadata & Actions */}
           <div className="min-w-0 flex-1 space-y-3.5 pb-1">

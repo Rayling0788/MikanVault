@@ -273,7 +273,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-6 px-6 py-6 pb-14">
-      {/* Compact Stats + Filter Tabs + Toolbar */}
+      {/* Compact Stats + Filter Dock + Toolbar */}
       <section className="space-y-3.5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400 tabular-nums">
@@ -343,9 +343,9 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           </div>
         </div>
 
-        {/* Storage & Progress Filter Tabs */}
+        {/* Storage & Progress Segmented Dock */}
         {seriesList.length > 0 && (
-          <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <div className="segmented-dock no-scrollbar max-w-full overflow-x-auto">
             {filterTabs.map((tab) => {
               const active = activeTab === tab.id;
               return (
@@ -353,16 +353,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition tabular-nums ${
-                    active
-                      ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11] shadow-[0_4px_14px_rgba(255,122,47,0.32)]'
-                      : 'border border-white/[0.08] bg-[#12151C] text-slate-300 hover:border-white/[0.16] hover:text-white'
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] tabular-nums ${
+                    active ? 'segmented-tab-active' : 'segmented-tab font-medium'
                   }`}
                 >
                   <span>{tab.label}</span>
-                  <span className={`text-[11px] ${active ? 'opacity-80' : 'text-slate-500'}`}>
-                    {tab.count}
-                  </span>
+                  <span className="text-[11px] opacity-75">{tab.count}</span>
                 </button>
               );
             })}
@@ -371,88 +367,91 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
       </section>
 
       {/* Continue Watching Horizontal Strip */}
-      {continueWatchingItems.length > 0 && !filter.trim() && (activeTab === 'all' || activeTab === 'watching') && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 text-[13.5px] font-semibold text-white">
-            <Play className="h-3.5 w-3.5 fill-[#FF7A2F] text-[#FF7A2F]" />
-            <span>继续观看</span>
-            <span className="text-[11.5px] font-normal text-slate-500 tabular-nums">
-              ({continueWatchingItems.length})
-            </span>
-          </div>
-          <div className="no-scrollbar flex gap-3.5 overflow-x-auto pb-1">
-            {continueWatchingItems.map(({ series, nextEpisode }) => {
-              const pct =
-                series.totalEpisodes > 0
-                  ? Math.min(100, Math.round((series.watchedCount / series.totalEpisodes) * 100))
-                  : 0;
-              const isPlaying = playingPath === nextEpisode.filePath;
-              return (
-                <div
-                  key={series.seriesId}
-                  className="card-interactive flex w-[300px] shrink-0 items-center gap-3.5 rounded-2xl p-3"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onOpenSeries(series)}
-                    className="cinema-dark-surface relative h-[84px] w-[63px] shrink-0 overflow-hidden rounded-xl border border-white/[0.12]"
+      {continueWatchingItems.length > 0 &&
+        !filter.trim() &&
+        (activeTab === 'all' || activeTab === 'watching') && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-[13.5px] font-semibold text-white">
+              <Play className="h-3.5 w-3.5 fill-[#FF7A2F] text-[#FF7A2F]" />
+              <span>继续观看</span>
+              <span className="text-[11.5px] font-normal text-slate-500 tabular-nums">
+                ({continueWatchingItems.length})
+              </span>
+            </div>
+            <div className="no-scrollbar flex gap-3.5 overflow-x-auto pb-1">
+              {continueWatchingItems.map(({ series, nextEpisode }) => {
+                const pct =
+                  series.totalEpisodes > 0
+                    ? Math.min(100, Math.round((series.watchedCount / series.totalEpisodes) * 100))
+                    : 0;
+                const isPlaying = playingPath === nextEpisode.filePath;
+                return (
+                  <div
+                    key={series.seriesId}
+                    className="card-interactive flex w-[312px] shrink-0 items-center gap-3.5 rounded-2xl p-3"
                   >
-                    <PosterImage
-                      url={series.coverUrl}
-                      title={series.title}
-                      compactFallback
-                      className="h-full w-full"
-                    />
-                  </button>
-                  <div className="min-w-0 flex-1 space-y-2">
                     <button
                       type="button"
                       onClick={() => onOpenSeries(series)}
-                      className="line-clamp-1 text-left text-[13px] font-semibold text-white hover:text-[#FF9E4F]"
+                      className="cinema-dark-surface relative h-[86px] w-[64px] shrink-0 overflow-hidden rounded-xl border border-white/[0.12] shadow-md transition hover:scale-[1.03]"
                     >
-                      {series.title}
-                    </button>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
-                      <span>下一集 {formatEpisodeLabel(nextEpisode.episodeNumber)}</span>
-                      <span>
-                        {series.watchedCount}/{series.totalEpisodes}
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.1]">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#FF7A2F] to-[#FF9E4F]"
-                        style={{ width: `${pct}%` }}
+                      <PosterImage
+                        url={series.coverUrl}
+                        title={series.title}
+                        compactFallback
+                        className="h-full w-full"
                       />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handlePlayContinue(nextEpisode)}
-                      disabled={isPlaying}
-                      className="btn-mikan inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px]"
-                    >
-                      {isPlaying ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Play className="h-3 w-3 fill-current" />
-                      )}
-                      {isPlaying ? '启动中...' : '继续播放'}
                     </button>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenSeries(series)}
+                        className="line-clamp-1 text-left text-[13px] font-semibold text-white hover:text-[#FF9E4F]"
+                      >
+                        {series.title}
+                      </button>
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
+                        <span>下一集 {formatEpisodeLabel(nextEpisode.episodeNumber)}</span>
+                        <span>
+                          {series.watchedCount}/{series.totalEpisodes}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.1]">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#FF7A2F] to-[#FF9E4F]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handlePlayContinue(nextEpisode)}
+                        disabled={isPlaying}
+                        className="btn-mikan inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11.5px]"
+                      >
+                        {isPlaying ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Play className="h-3 w-3 fill-current" />
+                        )}
+                        {isPlaying ? '启动中...' : '继续播放'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+                );
+              })}
+            </div>
+          </section>
+        )}
 
-      {/* Series Poster Grid or Empty State */}
+      {/* Series Gallery Poster Grid or Empty State */}
       {scanning && seriesList.length === 0 ? (
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="skeleton-shimmer aspect-[3/4] rounded-[15px] border border-white/[0.05]"
-            />
+            <div key={i} className="space-y-2.5">
+              <div className="skeleton-shimmer aspect-[3/4] rounded-2xl border border-white/[0.05]" />
+              <div className="skeleton-shimmer h-3.5 w-4/5 rounded-md" />
+              <div className="skeleton-shimmer h-3 w-1/2 rounded-md" />
+            </div>
           ))}
         </div>
       ) : seriesList.length === 0 ? (
@@ -492,7 +491,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           </p>
         </div>
       ) : (
-        <section className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <section className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {filtered.map((series) => {
             const pct =
               series.totalEpisodes > 0
@@ -511,75 +510,66 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   e.preventDefault();
                   setContextState({ x: e.clientX, y: e.clientY, series });
                 }}
-                className="poster-card cinema-dark-surface group aspect-[3/4] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F]"
+                className="poster-tile group flex flex-col text-left focus:outline-none"
               >
-                <PosterImage
-                  url={series.coverUrl}
-                  title={series.title}
-                  className="h-full w-full"
-                  imgClassName="poster-img"
-                />
+                {/* Unobstructed Infuse Artwork Frame */}
+                <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                  <PosterImage
+                    url={series.coverUrl}
+                    title={series.title}
+                    className="h-full w-full"
+                    imgClassName="poster-img"
+                  />
 
-                {/* Top Badges */}
-                <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-                  {allWatched ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#22C55E]/90 px-2 py-0.5 text-[10px] font-bold text-[#0B0D11]">
-                      <CheckCircle2 className="h-3 w-3" />
-                      已看完
-                    </span>
-                  ) : series.rating ? (
-                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/35 bg-[#0B0D11]/82 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-300 backdrop-blur-md tabular-nums">
-                      <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
-                      {series.rating.toFixed(1)}
-                    </span>
-                  ) : !series.scrapedAt && !series.coverUrl ? (
-                    <span className="rounded-md border border-white/[0.12] bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur-md">
-                      未刮削
-                    </span>
-                  ) : (
-                    <span />
-                  )}
-                  <div className="flex items-center gap-1">
-                    {series.isCloud && (
-                      <span
-                        title={`谷歌云盘目录：${series.folderPath}`}
-                        className="inline-flex items-center gap-1 rounded-md border border-sky-400/40 bg-[#0B0D11]/86 px-1.5 py-0.5 text-[10px] font-medium text-sky-300 backdrop-blur-md"
-                      >
-                        <Cloud className="h-2.5 w-2.5" />
-                        云盘
+                  {/* Top Corner Glass Badges */}
+                  <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
+                    {allWatched ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#22C55E]/92 px-2 py-0.5 text-[10px] font-bold text-[#0B0D11]">
+                        <CheckCircle2 className="h-3 w-3" />
+                        已看完
                       </span>
+                    ) : series.rating ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/35 bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-semibold text-amber-300 backdrop-blur-md tabular-nums">
+                        <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+                        {series.rating.toFixed(1)}
+                      </span>
+                    ) : !series.scrapedAt && !series.coverUrl ? (
+                      <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/75 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur-md">
+                        未刮削
+                      </span>
+                    ) : (
+                      <span />
                     )}
-                    <span className="tabular-nums rounded-md border border-white/[0.12] bg-[#0B0D11]/82 px-2 py-0.5 text-[10.5px] font-semibold text-slate-100 backdrop-blur-md">
-                      {unwatchedCount > 0 && series.watchedCount > 0
-                        ? `剩 ${unwatchedCount} 集`
-                        : `${series.totalEpisodes} 集`}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Infuse-style Hover Play Overlay */}
-                <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:opacity-100">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 bg-[#0B0D11]/80 text-white shadow-xl backdrop-blur-md">
-                    <Play className="ml-0.5 h-5 w-5 fill-[#FF9E4F] text-[#FF9E4F]" />
-                  </span>
-                </div>
-
-                {/* Bottom Caption & Progress Bar */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/92 to-transparent px-3 pt-14 pb-3">
-                  <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-white transition-colors group-hover:text-[#FF9E4F]">
-                    {series.title}
-                  </h3>
-
-                  <div className="mt-2 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] text-slate-300/80 tabular-nums">
-                      <span>观看进度</span>
-                      <span className={allWatched ? 'font-medium text-[#22C55E]' : 'text-slate-200'}>
-                        {series.watchedCount} / {series.totalEpisodes} 集
+                    <div className="flex items-center gap-1">
+                      {series.isCloud && (
+                        <span
+                          title={`谷歌云盘目录：${series.folderPath}`}
+                          className="inline-flex items-center gap-1 rounded-full border border-sky-400/40 bg-[#0B0D11]/80 px-2 py-0.5 text-[10px] font-medium text-sky-300 backdrop-blur-md"
+                        >
+                          <Cloud className="h-2.5 w-2.5" />
+                          云盘
+                        </span>
+                      )}
+                      <span className="tabular-nums rounded-full border border-white/[0.15] bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-semibold text-slate-100 backdrop-blur-md">
+                        {unwatchedCount > 0 && series.watchedCount > 0
+                          ? `剩 ${unwatchedCount} 集`
+                          : `${series.totalEpisodes} 集`}
                       </span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.15]">
+                  </div>
+
+                  {/* Centered Frosted Play Orb on Hover */}
+                  <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:scale-105 group-hover:opacity-100">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-[#0B0D11]/80 text-white shadow-2xl backdrop-blur-md">
+                      <Play className="ml-0.5 h-5 w-5 fill-[#FF9E4F] text-[#FF9E4F]" />
+                    </span>
+                  </div>
+
+                  {/* Razor-thin Bottom Progress Hairline (when started) */}
+                  {series.watchedCount > 0 && (
+                    <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-[3px] bg-black/45">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${
+                        className={`h-full transition-all duration-300 ${
                           allWatched
                             ? 'bg-[#22C55E]'
                             : 'bg-gradient-to-r from-[#FF7A2F] to-[#FF9E4F]'
@@ -587,6 +577,26 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                         style={{ width: `${pct}%` }}
                       />
                     </div>
+                  )}
+                </div>
+
+                {/* Clean Below-Poster Editorial Caption */}
+                <div className="w-full space-y-1 px-0.5 pt-2.5">
+                  <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100 transition-colors group-hover:text-[#FF9E4F]">
+                    {series.title}
+                  </h3>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 tabular-nums">
+                    {allWatched ? (
+                      <span className="inline-flex items-center gap-1 font-medium text-[#22C55E]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+                        全 {series.totalEpisodes} 集 · 已看完
+                      </span>
+                    ) : (
+                      <span>
+                        已看 {series.watchedCount} / {series.totalEpisodes} 集
+                      </span>
+                    )}
+                    {series.isCloud && <span className="text-sky-400">云端</span>}
                   </div>
                 </div>
               </button>

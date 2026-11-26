@@ -109,21 +109,22 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   if (loading && !schedule) {
     return (
       <div className="mx-auto max-w-[1440px] space-y-7 px-6 py-6">
-        <div className="skeleton-shimmer h-[276px] w-full rounded-2xl border border-white/[0.06]" />
+        <div className="skeleton-shimmer h-[296px] w-full rounded-2xl border border-white/[0.06]" />
         <div className="flex gap-2">
           {Array.from({ length: 8 }).map((_, idx) => (
             <div
               key={idx}
-              className="skeleton-shimmer h-8 w-16 rounded-full border border-white/[0.05]"
+              className="skeleton-shimmer h-9 w-20 rounded-full border border-white/[0.05]"
             />
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {Array.from({ length: 12 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="skeleton-shimmer aspect-[3/4] rounded-[15px] border border-white/[0.05]"
-            />
+            <div key={idx} className="space-y-2.5">
+              <div className="skeleton-shimmer aspect-[3/4] rounded-2xl border border-white/[0.05]" />
+              <div className="skeleton-shimmer h-3.5 w-4/5 rounded-md" />
+              <div className="skeleton-shimmer h-3 w-1/2 rounded-md" />
+            </div>
           ))}
         </div>
       </div>
@@ -157,44 +158,44 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
     : '本季放送';
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-7 px-6 py-6 pb-12">
-      {/* Featured Cinema Hero Spotlight */}
+    <div className="mx-auto max-w-[1440px] space-y-7 px-6 py-6 pb-14">
+      {/* Widescreen Cinema Hero Stage */}
       {activeHero && (
         <section
           onMouseEnter={() => setHeroHovered(true)}
           onMouseLeave={() => setHeroHovered(false)}
-          className="cinema-dark-surface relative overflow-hidden rounded-2xl border border-white/[0.1] bg-[#12151C] shadow-[0_24px_56px_-18px_rgba(0,0,0,0.75)]"
+          className="cinema-dark-surface relative min-h-[296px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0F1219] shadow-[0_26px_64px_-20px_rgba(0,0,0,0.8)]"
         >
-          {/* Ambient Blurred Backdrop */}
+          {/* Dual-layer Ambient Blurred Backdrop */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
             {heroBg.src && (
               <img
                 src={heroBg.src}
                 alt=""
                 aria-hidden="true"
-                className="h-full w-full scale-115 object-cover opacity-40 blur-3xl saturate-140 transition-opacity duration-500"
+                className="h-full w-full scale-125 object-cover opacity-42 blur-3xl saturate-150 transition-all duration-700"
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#090B10] via-[#0B0D11]/86 to-[#0B0D11]/45" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#090B10] via-transparent to-transparent" />
-            <div className="absolute -top-24 -left-16 h-72 w-72 rounded-full bg-[#FF7A2F]/18 blur-3xl" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#090B10]/95 via-[#0B0D11]/82 to-[#0B0D11]/35" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#090B10] via-transparent to-[#090B10]/30" />
+            <div className="absolute -top-24 -left-16 h-80 w-80 rounded-full bg-[#FF7A2F]/18 blur-3xl" />
           </div>
 
-          <div className="relative flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between md:p-7">
-            {/* Left Info */}
+          <div className="relative flex min-h-[296px] flex-col justify-between gap-6 p-6 sm:flex-row sm:items-center md:px-8 md:py-7">
+            {/* Left Editorial Info */}
             <div className="min-w-0 flex-1 space-y-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[#FF7A2F]/40 bg-[#FF7A2F]/18 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#FF9E4F]">
                   <Sparkles className="h-3 w-3" />
                   本季焦点推荐
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-slate-200">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-slate-200 backdrop-blur-md">
                   <Calendar className="h-3 w-3 text-slate-300" />
                   {MIKAN_DAY_LABELS[activeHero.updateDay] || '本季连载'}
                   {activeHero.updateDate ? ` · ${activeHero.updateDate}` : ''}
                 </span>
                 {activeHero.hasUpdate && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#22C55E]/18 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-[#22C55E]/30">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#22C55E]/20 px-2.5 py-1 text-[11px] font-medium text-emerald-300 ring-1 ring-[#22C55E]/35">
                     <Flame className="h-3 w-3" />
                     近期有新资源
                   </span>
@@ -202,7 +203,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               </div>
 
               <div className="space-y-2">
-                <h2 className="line-clamp-2 max-w-2xl text-[24px] leading-tight font-bold tracking-tight text-white md:text-[29px]">
+                <h2 className="line-clamp-2 max-w-2xl text-[25px] leading-tight font-bold tracking-tight text-white md:text-[31px]">
                   {activeHero.title}
                 </h2>
                 <p className="max-w-2xl text-[13px] leading-relaxed text-slate-300/90">
@@ -224,16 +225,16 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                   type="button"
                   onClick={onRefresh}
                   disabled={loading}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/[0.14] bg-white/[0.06] px-4 text-[13px] font-medium text-slate-100 transition hover:border-white/[0.25] hover:bg-white/[0.12] disabled:opacity-50"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/[0.15] bg-white/[0.07] px-4 text-[13px] font-medium text-slate-100 backdrop-blur-md transition hover:border-white/[0.28] hover:bg-white/[0.13] disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                   刷新番组
                 </button>
               </div>
 
-              {/* Thumbnail Strip & Prev/Next Controls */}
+              {/* Mini-Poster Switcher Strip with Animated Progress Hairline */}
               {featuredCandidates.length > 1 && (
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex items-center gap-2 pt-1.5">
                   <button
                     type="button"
                     onClick={() =>
@@ -242,7 +243,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                       )
                     }
                     aria-label="上一部焦点番剧"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.05] text-slate-300 transition hover:bg-white/[0.12] hover:text-white"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.06] text-slate-300 transition hover:bg-white/[0.14] hover:text-white"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
@@ -256,7 +257,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                           onClick={() => setSpotlightIndex(idx)}
                           title={cand.title}
                           aria-label={`切换焦点番剧 ${cand.title}`}
-                          className={`group relative h-11 w-8 shrink-0 overflow-hidden rounded-lg border transition-all duration-200 ${
+                          className={`group relative h-12 w-9 shrink-0 overflow-hidden rounded-lg border transition-all duration-200 ${
                             active
                               ? 'scale-105 border-[#FF7A2F] ring-2 ring-[#FF7A2F]/40'
                               : 'border-white/[0.14] opacity-55 hover:opacity-95'
@@ -268,6 +269,13 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                             compactFallback
                             className="h-full w-full"
                           />
+                          {active && (
+                            <span
+                              key={`prog-${cand.id}-${safeIndex}`}
+                              style={{ animationPlayState: heroHovered ? 'paused' : 'running' }}
+                              className="animate-hero-progress absolute right-0 bottom-0 left-0 h-[2.5px] bg-[#FF9E4F]"
+                            />
+                          )}
                         </button>
                       );
                     })}
@@ -278,7 +286,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                       setSpotlightIndex((safeIndex + 1) % featuredCandidates.length)
                     }
                     aria-label="下一部焦点番剧"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.05] text-slate-300 transition hover:bg-white/[0.12] hover:text-white"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.06] text-slate-300 transition hover:bg-white/[0.14] hover:text-white"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
@@ -286,44 +294,39 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               )}
             </div>
 
-            {/* Right Sharp Floating 3:4 Poster */}
-            <button
-              type="button"
-              onClick={() => onOpenBangumi(activeHero)}
-              className="group relative hidden shrink-0 overflow-hidden rounded-xl border border-white/[0.18] shadow-[0_22px_48px_rgba(0,0,0,0.85)] transition duration-300 hover:scale-[1.03] hover:border-[#FF7A2F]/60 sm:block"
-            >
-              <PosterImage
-                key={activeHero.id}
-                url={activeHero.coverUrl}
-                title={activeHero.title}
-                className="h-[220px] w-[165px]"
-                imgClassName="transition duration-500 group-hover:scale-105"
-              />
-            </button>
+            {/* Right Sharp Floating 3:4 Poster with Ambient Glow */}
+            <div className="relative hidden shrink-0 sm:block">
+              <div className="pointer-events-none absolute -inset-4 rounded-3xl bg-[#FF7A2F]/22 opacity-60 blur-2xl" />
+              <button
+                type="button"
+                onClick={() => onOpenBangumi(activeHero)}
+                className="group relative overflow-hidden rounded-2xl border border-white/[0.2] shadow-[0_24px_54px_rgba(0,0,0,0.9)] transition duration-300 hover:scale-[1.03] hover:border-[#FF7A2F]/65"
+              >
+                <PosterImage
+                  key={activeHero.id}
+                  url={activeHero.coverUrl}
+                  title={activeHero.title}
+                  className="h-[240px] w-[178px]"
+                  imgClassName="transition duration-500 group-hover:scale-105"
+                />
+              </button>
+            </div>
           </div>
         </section>
       )}
 
-      {/* Weekday Segmented Filter Bar */}
+      {/* Weekday Segmented Filter Dock */}
       <section className="flex flex-wrap items-center justify-between gap-3">
-        <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-1">
+        <div className="segmented-dock no-scrollbar max-w-full overflow-x-auto">
           <button
             type="button"
             onClick={() => setSelectedDay('all')}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-              selectedDay === 'all'
-                ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11] shadow-[0_4px_16px_rgba(255,122,47,0.35)]'
-                : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:border-white/[0.15] hover:bg-[#181C26] hover:text-white'
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] ${
+              selectedDay === 'all' ? 'segmented-tab-active' : 'segmented-tab font-medium'
             }`}
           >
             <span>全部新番</span>
-            <span
-              className={`tabular-nums text-[11px] ${
-                selectedDay === 'all' ? 'opacity-80' : 'text-slate-500'
-              }`}
-            >
-              {allItems.length}
-            </span>
+            <span className="tabular-nums text-[11px] opacity-75">{allItems.length}</span>
           </button>
 
           {DAY_ORDER.map((day) => {
@@ -336,10 +339,8 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 key={day}
                 type="button"
                 onClick={() => setSelectedDay(day)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-                  isSelected
-                    ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11] shadow-[0_4px_16px_rgba(255,122,47,0.35)]'
-                    : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:border-white/[0.15] hover:bg-[#181C26] hover:text-white'
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] ${
+                  isSelected ? 'segmented-tab-active' : 'segmented-tab font-medium'
                 }`}
               >
                 {isToday && (
@@ -350,20 +351,14 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                   />
                 )}
                 <span>{MIKAN_DAY_LABELS[day]}</span>
-                <span
-                  className={`tabular-nums text-[11px] ${
-                    isSelected ? 'opacity-80' : 'text-slate-500'
-                  }`}
-                >
-                  {count}
-                </span>
+                <span className="tabular-nums text-[11px] opacity-75">{count}</span>
               </button>
             );
           })}
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-slate-400">
-          <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#12151C] px-2.5 py-1">
+          <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#12151C] px-2.5 py-1.5">
             <Calendar className="h-3.5 w-3.5 text-[#FF7A2F]" />
             <select
               aria-label="选择年份"
@@ -407,12 +402,12 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
             )}
           </div>
           <span className="tabular-nums text-slate-500">
-            共展示 <span className="font-semibold text-slate-300">{visibleItems.length}</span> 部番剧
+            共 <span className="font-semibold text-slate-300">{visibleItems.length}</span> 部番剧
           </span>
         </div>
       </section>
 
-      {/* Seasonal Poster Wall */}
+      {/* Gallery Unobstructed Seasonal Poster Wall */}
       {visibleItems.length === 0 ? (
         <div className="card-elevated flex flex-col items-center justify-center rounded-2xl py-16 text-center">
           <Calendar className="h-8 w-8 text-slate-600" />
@@ -420,48 +415,51 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
           <p className="mt-1 text-[12px] text-slate-500">切换其他星期或查看全部新番</p>
         </div>
       ) : (
-        <section className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <section className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {visibleItems.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => onOpenBangumi(item)}
-              className="poster-card cinema-dark-surface group aspect-[3/4] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A2F]"
+              className="poster-tile group flex flex-col text-left focus:outline-none"
             >
-              <PosterImage
-                url={item.coverUrl}
-                title={item.title}
-                className="h-full w-full"
-                imgClassName="poster-img"
-              />
+              {/* Pure Unobstructed Artwork Frame */}
+              <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                <PosterImage
+                  url={item.coverUrl}
+                  title={item.title}
+                  className="h-full w-full"
+                  imgClassName="poster-img"
+                />
 
-              {/* Top Badges */}
-              <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-                <span className="rounded-md border border-white/[0.12] bg-[#0B0D11]/78 px-2 py-0.5 text-[10.5px] font-medium text-slate-100 backdrop-blur-md">
-                  {MIKAN_DAY_LABELS[item.updateDay] || '新番'}
-                </span>
-                {item.hasUpdate && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#FF7A2F] px-2 py-0.5 text-[10px] font-bold text-[#0B0D11] shadow-[0_2px_10px_rgba(255,122,47,0.65)]">
-                    NEW
+                {/* Top Corner Minimal Glass Badges */}
+                <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
+                  <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/72 px-2 py-0.5 text-[10px] font-medium text-slate-100 backdrop-blur-md">
+                    {MIKAN_DAY_LABELS[item.updateDay] || '新番'}
                   </span>
-                )}
+                  {item.hasUpdate && (
+                    <span className="inline-flex items-center rounded-full bg-[#FF7A2F] px-2 py-0.5 text-[10px] font-bold text-[#0B0D11] shadow-[0_2px_10px_rgba(255,122,47,0.65)]">
+                      NEW
+                    </span>
+                  )}
+                </div>
+
+                {/* Hover Bottom Frosted Quick-Inspect Pill */}
+                <div className="pointer-events-none absolute inset-x-3 bottom-3 flex translate-y-1.5 justify-center opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-[#0B0D11]/82 px-3 py-1.5 text-[11px] font-semibold text-white shadow-xl backdrop-blur-md">
+                    查看资源
+                    <ArrowRight className="h-3 w-3 text-[#FF9E4F]" />
+                  </span>
+                </div>
               </div>
 
-              {/* Hover Quick Action Pill */}
-              <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:opacity-100">
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-[#0B0D11]/82 px-3 py-1.5 text-[11.5px] font-semibold text-white shadow-xl backdrop-blur-md">
-                  查看资源
-                  <ArrowRight className="h-3 w-3 text-[#FF9E4F]" />
-                </span>
-              </div>
-
-              {/* Bottom Editorial Gradient Caption */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/88 to-transparent px-3 pt-12 pb-3">
-                <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-white transition-colors group-hover:text-[#FF9E4F]">
+              {/* Clean Below-Poster Editorial Caption */}
+              <div className="w-full px-0.5 pt-2.5">
+                <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100 transition-colors group-hover:text-[#FF9E4F]">
                   {item.title}
                 </h3>
                 {item.updateDate && (
-                  <p className="mt-1 truncate text-[11px] text-slate-300/80">{item.updateDate}</p>
+                  <p className="mt-1 truncate text-[11px] text-slate-500">{item.updateDate}</p>
                 )}
               </div>
             </button>

@@ -452,27 +452,29 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                 该季度下暂无匹配的番剧记录
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {archiveItems.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => onOpenBangumi(item)}
-                    className="poster-card cinema-dark-surface group aspect-[3/4] text-left"
+                    className="poster-tile group flex flex-col text-left focus:outline-none"
                   >
-                    <PosterImage
-                      url={item.coverUrl}
-                      title={item.title}
-                      className="h-full w-full"
-                      imgClassName="poster-img"
-                    />
-                    <div className="pointer-events-none absolute top-2.5 left-2.5">
-                      <span className="rounded-md border border-white/[0.08] bg-[#0B0D11]/75 px-2 py-0.5 text-[10.5px] font-medium text-slate-200 backdrop-blur-md">
-                        {MIKAN_DAY_LABELS[item.updateDay] || `${archiveYear}${archiveSeason}`}
-                      </span>
+                    <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                      <PosterImage
+                        url={item.coverUrl}
+                        title={item.title}
+                        className="h-full w-full"
+                        imgClassName="poster-img"
+                      />
+                      <div className="pointer-events-none absolute top-2.5 left-2.5">
+                        <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/74 px-2 py-0.5 text-[10px] font-medium text-slate-100 backdrop-blur-md">
+                          {MIKAN_DAY_LABELS[item.updateDay] || `${archiveYear}${archiveSeason}`}
+                        </span>
+                      </div>
                     </div>
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/88 to-transparent px-3 pt-12 pb-3">
-                      <h3 className="line-clamp-2 text-[13px] font-semibold text-white group-hover:text-[#FF9E4F]">
+                    <div className="w-full px-0.5 pt-2.5">
+                      <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100 transition-colors group-hover:text-[#FF9E4F]">
                         {item.title}
                       </h3>
                     </div>
@@ -598,22 +600,24 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                   ({bangumis.length})
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                 {bangumis.map((b) => (
                   <button
                     key={b.id}
                     type="button"
                     onClick={() => onOpenBangumi(b)}
-                    className="poster-card cinema-dark-surface group aspect-[3/4] text-left"
+                    className="poster-tile group flex flex-col text-left focus:outline-none"
                   >
-                    <PosterImage
-                      url={b.coverUrl}
-                      title={b.title}
-                      className="h-full w-full"
-                      imgClassName="poster-img"
-                    />
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/88 to-transparent px-3 pt-12 pb-3">
-                      <h3 className="line-clamp-2 text-[13px] font-semibold text-white group-hover:text-[#FF9E4F]">
+                    <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                      <PosterImage
+                        url={b.coverUrl}
+                        title={b.title}
+                        className="h-full w-full"
+                        imgClassName="poster-img"
+                      />
+                    </div>
+                    <div className="w-full px-0.5 pt-2.5">
+                      <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-100 transition-colors group-hover:text-[#FF9E4F]">
                         {b.title}
                       </h3>
                     </div>

@@ -314,7 +314,9 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>正在上传</span>
-            <CloudUpload className="h-4 w-4 text-sky-400" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500/14 text-sky-400">
+              <CloudUpload className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2 tabular-nums">
             <span className="text-[24px] font-bold text-white">{activeCount}</span>
@@ -327,7 +329,9 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>写入云盘速度</span>
-            <Cloud className="h-4 w-4 text-cyan-400" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/14 text-cyan-400">
+              <Cloud className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 tabular-nums text-[24px] font-bold text-sky-300">
             {totalSpeed > 0 ? formatSpeed(totalSpeed) : '0 B/s'}
@@ -337,7 +341,9 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>已完成传输</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/14 text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2 tabular-nums">
             <span className="text-[24px] font-bold text-emerald-400">{completedCount}</span>
@@ -348,7 +354,9 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
         <div className="card-elevated rounded-2xl p-4">
           <div className="flex items-center justify-between text-[12px] text-slate-400">
             <span>异常 / 已取消</span>
-            <Ban className="h-4 w-4 text-slate-400" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.06] text-slate-400">
+              <Ban className="h-3.5 w-3.5" />
+            </span>
           </div>
           <div className="mt-2 tabular-nums text-[24px] font-bold text-slate-200">
             {failedOrCancelledCount}
@@ -358,7 +366,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
 
       {/* Filter & Search Toolbar */}
       <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="segmented-dock no-scrollbar max-w-full overflow-x-auto">
           {(
             [
               { id: 'all', label: '全部任务', count: jobs.length },
@@ -374,20 +382,12 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setFilter(tab.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-                  active
-                    ? 'bg-sky-500 text-[#0B0D11] font-semibold'
-                    : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:bg-[#181C26] hover:text-white'
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] ${
+                  active ? 'segmented-tab-active-sky' : 'segmented-tab font-medium'
                 }`}
               >
                 <span>{tab.label}</span>
-                <span
-                  className={`tabular-nums text-[11px] ${
-                    active ? 'text-[#0B0D11]/75' : 'text-slate-500'
-                  }`}
-                >
-                  {tab.count}
-                </span>
+                <span className="tabular-nums text-[11px] opacity-75">{tab.count}</span>
               </button>
             );
           })}
@@ -470,7 +470,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
                         url={series.coverUrl}
                         title={series.title}
                         compactFallback
-                        className="h-[60px] w-[44px] shrink-0 rounded-lg border border-white/[0.08]"
+                        className="cinema-dark-surface h-[60px] w-[44px] shrink-0 rounded-lg border border-white/[0.08]"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold text-white">
@@ -561,7 +561,7 @@ export const CloudUploadPage: React.FC<CloudUploadPageProps> = ({
                   url={job.coverUrl}
                   title={job.bangumiTitle || job.torrentName}
                   compactFallback
-                  className="hidden h-[76px] w-[54px] shrink-0 rounded-lg border border-white/[0.08] sm:block"
+                  className="cinema-dark-surface hidden h-[76px] w-[54px] shrink-0 rounded-lg border border-white/[0.08] sm:block"
                 />
 
                 {/* Center Info + Progress */}

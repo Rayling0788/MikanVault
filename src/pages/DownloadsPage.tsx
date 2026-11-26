@@ -370,7 +370,7 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
 
       {/* Filter & Search Bar */}
       <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="segmented-dock no-scrollbar max-w-full overflow-x-auto">
           {(
             [
               { id: 'all', label: '全部任务', count: torrents.length },
@@ -389,20 +389,12 @@ export const DownloadsPage: React.FC<DownloadsPageProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setFilter(tab.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition ${
-                  active
-                    ? 'bg-[#FF7A2F] font-semibold text-[#0B0D11]'
-                    : 'border border-white/[0.07] bg-[#12151C] text-slate-300 hover:bg-[#181C26] hover:text-white'
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] ${
+                  active ? 'segmented-tab-active' : 'segmented-tab font-medium'
                 }`}
               >
                 <span>{tab.label}</span>
-                <span
-                  className={`tabular-nums text-[11px] ${
-                    active ? 'opacity-80' : 'text-slate-500'
-                  }`}
-                >
-                  {tab.count}
-                </span>
+                <span className="tabular-nums text-[11px] opacity-75">{tab.count}</span>
               </button>
             );
           })}
