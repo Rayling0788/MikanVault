@@ -513,7 +513,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                 className="poster-tile group flex flex-col text-left focus:outline-none"
               >
                 {/* Unobstructed Infuse Artwork Frame */}
-                <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                <div className="poster-frame aspect-[3/4] w-full">
                   <PosterImage
                     url={series.coverUrl}
                     title={series.title}
@@ -529,12 +529,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                         已看完
                       </span>
                     ) : series.rating ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/35 bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-semibold text-amber-300 backdrop-blur-md tabular-nums">
+                      <span className="poster-glass-badge inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums">
                         <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
                         {series.rating.toFixed(1)}
                       </span>
                     ) : !series.scrapedAt && !series.coverUrl ? (
-                      <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/75 px-2 py-0.5 text-[10px] font-medium text-slate-300 backdrop-blur-md">
+                      <span className="poster-glass-badge rounded-full px-2 py-0.5 text-[10px] font-medium">
                         未刮削
                       </span>
                     ) : (
@@ -544,13 +544,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       {series.isCloud && (
                         <span
                           title={`谷歌云盘目录：${series.folderPath}`}
-                          className="inline-flex items-center gap-1 rounded-full border border-sky-400/40 bg-[#0B0D11]/80 px-2 py-0.5 text-[10px] font-medium text-sky-300 backdrop-blur-md"
+                          className="poster-glass-badge inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
                         >
-                          <Cloud className="h-2.5 w-2.5" />
+                          <Cloud className="h-2.5 w-2.5 text-sky-400" />
                           云盘
                         </span>
                       )}
-                      <span className="tabular-nums rounded-full border border-white/[0.15] bg-[#0B0D11]/78 px-2 py-0.5 text-[10px] font-semibold text-slate-100 backdrop-blur-md">
+                      <span className="poster-glass-badge tabular-nums rounded-full px-2 py-0.5 text-[10px] font-semibold">
                         {unwatchedCount > 0 && series.watchedCount > 0
                           ? `剩 ${unwatchedCount} 集`
                           : `${series.totalEpisodes} 集`}
@@ -560,8 +560,8 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 
                   {/* Centered Frosted Play Orb on Hover */}
                   <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-all duration-200 group-hover:scale-105 group-hover:opacity-100">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-[#0B0D11]/80 text-white shadow-2xl backdrop-blur-md">
-                      <Play className="ml-0.5 h-5 w-5 fill-[#FF9E4F] text-[#FF9E4F]" />
+                    <span className="poster-hover-pill flex h-12 w-12 items-center justify-center rounded-full">
+                      <Play className="ml-0.5 h-5 w-5 fill-[#FF7A2F] text-[#FF7A2F]" />
                     </span>
                   </div>
 

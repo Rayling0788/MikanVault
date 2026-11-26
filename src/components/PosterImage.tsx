@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useProxiedImage } from '@/hooks/useProxiedImage';
 
 const FALLBACK_PALETTES = [
-  ['#1E293B', '#0F172A', '#FF7A2F'],
-  ['#2A1B16', '#110D10', '#FB923C'],
-  ['#122732', '#0A1319', '#38BDF8'],
-  ['#152922', '#0B1411', '#22C55E'],
-  ['#272017', '#110F0B', '#F59E0B'],
-  ['#2B1821', '#110C10', '#FB7185'],
+  { darkA: '#1E293B', darkB: '#0F172A', lightA: '#FFF3EB', lightB: '#E7EFFC', accent: '#F97316' },
+  { darkA: '#2A1B16', darkB: '#110D10', lightA: '#FFEDE2', lightB: '#FCE7F3', accent: '#EA580C' },
+  { darkA: '#122732', darkB: '#0A1319', lightA: '#E6F5FF', lightB: '#E9EDFE', accent: '#0284C7' },
+  { darkA: '#152922', darkB: '#0B1411', lightA: '#E7FAF2', lightB: '#E8F3FF', accent: '#059669' },
+  { darkA: '#272017', darkB: '#110F0B', lightA: '#FEF3C7', lightB: '#FDEEE5', accent: '#D97706' },
+  { darkA: '#2B1821', darkB: '#110C10', lightA: '#FCE7F3', lightB: '#EDE9FE', accent: '#E11D48' },
 ];
 
 function hashTitle(title: string): number {
@@ -60,7 +60,7 @@ export const PosterImage: React.FC<PosterImageProps> = ({
   const showFallback = !url || failed || imgError || (!loading && !src);
 
   return (
-    <div className={`relative overflow-hidden bg-[#151923] ${className}`}>
+    <div className={`poster-surface relative overflow-hidden ${className}`}>
       {loading && !src && <div className="skeleton-shimmer absolute inset-0" />}
 
       {!showFallback && src && (
@@ -80,34 +80,39 @@ export const PosterImage: React.FC<PosterImageProps> = ({
 
       {showFallback && (
         <div
-          className="cinema-dark-surface relative flex h-full w-full flex-col justify-between p-3.5 select-none"
-          style={{
-            background: `linear-gradient(145deg, ${palette[0]} 0%, ${palette[1]} 100%)`,
-          }}
+          className="poster-fallback-card relative flex h-full w-full flex-col justify-between p-3.5 select-none"
+          style={
+            {
+              '--pf-dark-a': palette.darkA,
+              '--pf-dark-b': palette.darkB,
+              '--pf-light-a': palette.lightA,
+              '--pf-light-b': palette.lightB,
+            } as React.CSSProperties
+          }
         >
           <div
-            className="pointer-events-none absolute -top-8 -right-8 h-28 w-28 rounded-full opacity-20 blur-xl"
-            style={{ backgroundColor: palette[2] }}
+            className="pointer-events-none absolute -top-8 -right-8 h-28 w-28 rounded-full opacity-22 blur-xl"
+            style={{ backgroundColor: palette.accent }}
           />
           <div
-            className="pointer-events-none absolute bottom-10 -left-6 h-20 w-20 rounded-full border opacity-20"
-            style={{ borderColor: palette[2] }}
+            className="pointer-events-none absolute bottom-10 -left-6 h-20 w-20 rounded-full border opacity-22"
+            style={{ borderColor: palette.accent }}
           />
           {!compactFallback && (
-            <div className="text-[10px] font-medium tracking-[0.2em] text-white/45 uppercase">
+            <div className="poster-fallback-brand text-[10px] font-medium tracking-[0.2em] uppercase">
               MIKANVAULT
             </div>
           )}
           <div className="my-auto flex items-center justify-center">
             <span
               className={`font-bold tracking-tight ${compactFallback ? 'text-base' : 'text-3xl'}`}
-              style={{ color: palette[2] }}
+              style={{ color: palette.accent }}
             >
               {initials}
             </span>
           </div>
           {!compactFallback && (
-            <div className="line-clamp-2 text-[11px] font-medium text-white/70 leading-snug">
+            <div className="line-clamp-2 text-[11px] font-medium leading-snug">
               {title}
             </div>
           )}

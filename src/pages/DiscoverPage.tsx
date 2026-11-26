@@ -164,7 +164,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
         <section
           onMouseEnter={() => setHeroHovered(true)}
           onMouseLeave={() => setHeroHovered(false)}
-          className="cinema-dark-surface relative min-h-[296px] overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0F1219] shadow-[0_26px_64px_-20px_rgba(0,0,0,0.8)]"
+          className="hero-stage relative min-h-[296px] overflow-hidden rounded-2xl"
         >
           {/* Dual-layer Ambient Blurred Backdrop */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -176,8 +176,8 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 className="h-full w-full scale-125 object-cover opacity-42 blur-3xl saturate-150 transition-all duration-700"
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#090B10]/95 via-[#0B0D11]/82 to-[#0B0D11]/35" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#090B10] via-transparent to-[#090B10]/30" />
+            <div className="hero-scrim-h absolute inset-0" />
+            <div className="hero-scrim-v absolute inset-0" />
             <div className="absolute -top-24 -left-16 h-80 w-80 rounded-full bg-[#FF7A2F]/18 blur-3xl" />
           </div>
 
@@ -225,7 +225,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                   type="button"
                   onClick={onRefresh}
                   disabled={loading}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/[0.15] bg-white/[0.07] px-4 text-[13px] font-medium text-slate-100 backdrop-blur-md transition hover:border-white/[0.28] hover:bg-white/[0.13] disabled:opacity-50"
+                  className="btn-ghost-dark inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-medium disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                   刷新番组
@@ -243,7 +243,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                       )
                     }
                     aria-label="上一部焦点番剧"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.06] text-slate-300 transition hover:bg-white/[0.14] hover:text-white"
+                    className="btn-ghost-dark flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
@@ -260,7 +260,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                           className={`group relative h-12 w-9 shrink-0 overflow-hidden rounded-lg border transition-all duration-200 ${
                             active
                               ? 'scale-105 border-[#FF7A2F] ring-2 ring-[#FF7A2F]/40'
-                              : 'border-white/[0.14] opacity-55 hover:opacity-95'
+                              : 'border-white/[0.14] opacity-60 hover:opacity-95'
                           }`}
                         >
                           <PosterImage
@@ -286,7 +286,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                       setSpotlightIndex((safeIndex + 1) % featuredCandidates.length)
                     }
                     aria-label="下一部焦点番剧"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.06] text-slate-300 transition hover:bg-white/[0.14] hover:text-white"
+                    className="btn-ghost-dark flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
@@ -424,7 +424,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               className="poster-tile group flex flex-col text-left focus:outline-none"
             >
               {/* Pure Unobstructed Artwork Frame */}
-              <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+              <div className="poster-frame aspect-[3/4] w-full">
                 <PosterImage
                   url={item.coverUrl}
                   title={item.title}
@@ -434,7 +434,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
 
                 {/* Top Corner Minimal Glass Badges */}
                 <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-                  <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/72 px-2 py-0.5 text-[10px] font-medium text-slate-100 backdrop-blur-md">
+                  <span className="poster-glass-badge rounded-full px-2 py-0.5 text-[10px] font-medium">
                     {MIKAN_DAY_LABELS[item.updateDay] || '新番'}
                   </span>
                   {item.hasUpdate && (
@@ -446,9 +446,9 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
 
                 {/* Hover Bottom Frosted Quick-Inspect Pill */}
                 <div className="pointer-events-none absolute inset-x-3 bottom-3 flex translate-y-1.5 justify-center opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-[#0B0D11]/82 px-3 py-1.5 text-[11px] font-semibold text-white shadow-xl backdrop-blur-md">
+                  <span className="poster-hover-pill inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold">
                     查看资源
-                    <ArrowRight className="h-3 w-3 text-[#FF9E4F]" />
+                    <ArrowRight className="h-3 w-3 text-[#FF7A2F]" />
                   </span>
                 </div>
               </div>

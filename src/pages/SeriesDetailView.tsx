@@ -261,7 +261,7 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
   return (
     <div className="pb-14">
       {/* Ambient Series Header */}
-      <div className="cinema-dark-surface relative overflow-hidden border-b border-white/[0.06]">
+      <div className="detail-hero relative overflow-hidden border-b border-white/[0.06]">
         <div className="pointer-events-none absolute inset-0">
           {bgImg.src && (
             <img
@@ -271,7 +271,7 @@ export const SeriesDetailView: React.FC<SeriesDetailViewProps> = ({
               className="h-full w-full scale-110 object-cover opacity-28 blur-3xl saturate-125"
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0B0D11]/65 via-[#0B0D11]/86 to-[#0B0D11]" />
+          <div className="detail-hero-scrim absolute inset-0" />
         </div>
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">

@@ -228,7 +228,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
   return (
     <div className={selection.selectedCount > 0 ? 'pb-24' : 'pb-14'}>
       {/* Full-bleed Ambient Blurred Cover Header */}
-      <div className="cinema-dark-surface relative overflow-hidden border-b border-white/[0.06]">
+      <div className="detail-hero relative overflow-hidden border-b border-white/[0.06]">
         <div className="pointer-events-none absolute inset-0">
           {bgImg.src && (
             <img
@@ -238,8 +238,7 @@ export const BangumiDetailView: React.FC<BangumiDetailViewProps> = ({
               className="h-full w-full scale-110 object-cover opacity-30 blur-3xl saturate-125"
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0B0D11]/65 via-[#0B0D11]/85 to-[#0B0D11]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0B0D11]/90 via-transparent to-[#0B0D11]/70" />
+          <div className="detail-hero-scrim absolute inset-0" />
         </div>
 
         <div className="relative mx-auto flex max-w-[1320px] flex-col gap-6 px-6 py-7 sm:flex-row sm:items-end">

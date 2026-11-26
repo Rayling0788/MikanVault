@@ -460,7 +460,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                     onClick={() => onOpenBangumi(item)}
                     className="poster-tile group flex flex-col text-left focus:outline-none"
                   >
-                    <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                    <div className="poster-frame aspect-[3/4] w-full">
                       <PosterImage
                         url={item.coverUrl}
                         title={item.title}
@@ -468,7 +468,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                         imgClassName="poster-img"
                       />
                       <div className="pointer-events-none absolute top-2.5 left-2.5">
-                        <span className="rounded-full border border-white/[0.15] bg-[#0B0D11]/74 px-2 py-0.5 text-[10px] font-medium text-slate-100 backdrop-blur-md">
+                        <span className="poster-glass-badge rounded-full px-2 py-0.5 text-[10px] font-medium">
                           {MIKAN_DAY_LABELS[item.updateDay] || `${archiveYear}${archiveSeason}`}
                         </span>
                       </div>
@@ -608,7 +608,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                     onClick={() => onOpenBangumi(b)}
                     className="poster-tile group flex flex-col text-left focus:outline-none"
                   >
-                    <div className="poster-frame cinema-dark-surface aspect-[3/4] w-full">
+                    <div className="poster-frame aspect-[3/4] w-full">
                       <PosterImage
                         url={b.coverUrl}
                         title={b.title}

@@ -204,7 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2 text-left'
                   } ${
                     isActive
-                      ? 'bg-gradient-to-r from-[#FF7A2F]/18 via-[#FF7A2F]/8 to-transparent text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                      ? 'sidebar-nav-active'
                       : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-100'
                   }`}
                 >
@@ -353,7 +353,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectSection('downloads')}
-                className="group w-full rounded-xl border border-amber-400/30 bg-gradient-to-br from-amber-500/14 to-[#12151C] p-2.5 text-left transition hover:border-amber-400/55"
+                className="sidebar-status-warn group w-full rounded-xl p-2.5 text-left transition hover:border-amber-400/55"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -369,7 +369,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={onLaunchQb}
                 disabled={launchingQb}
-                className="group w-full rounded-xl border border-[#FF7A2F]/25 bg-gradient-to-br from-[#FF7A2F]/12 to-[#12151C] p-2.5 text-left transition hover:border-[#FF7A2F]/50 disabled:opacity-65"
+                className="sidebar-status-mikan group w-full rounded-xl p-2.5 text-left transition hover:border-[#FF7A2F]/50 disabled:opacity-65"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">

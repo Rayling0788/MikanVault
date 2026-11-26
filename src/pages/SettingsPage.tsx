@@ -263,7 +263,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   title: '暗夜影院',
                   desc: '深邃黑曜石画布，沉浸式海报对比度',
                   Icon: Moon,
-                  previewBg: 'bg-[#090B10] border-white/15',
+                  previewBg: 'cinema-dark-surface bg-[#090B10] border-white/15',
                   previewCard: 'bg-[#151A24] border-white/10',
                 },
                 {

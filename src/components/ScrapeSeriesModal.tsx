@@ -282,13 +282,13 @@ export const ScrapeSeriesModal: React.FC<ScrapeSeriesModalProps> = ({
                       )}
 
                       {isApplying && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0B0D11]/75 backdrop-blur-xs">
+                        <div className="cinema-dark-surface absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0B0D11]/75 backdrop-blur-xs">
                           <Loader2 className="h-6 w-6 animate-spin text-[#FF7A2F]" />
                           <span className="text-[11.5px] font-medium text-white">刮削写入中...</span>
                         </div>
                       )}
 
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/90 to-transparent px-2.5 pt-10 pb-2.5">
+                      <div className="cinema-dark-surface pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#080A0E] via-[#0B0D11]/90 to-transparent px-2.5 pt-10 pb-2.5">
                         <div className="line-clamp-2 text-[12px] font-semibold leading-snug text-white group-hover:text-[#FF9E4F]">
                           {card.title}
                         </div>
